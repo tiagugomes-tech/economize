@@ -1037,6 +1037,46 @@ const Parser = (() => {
     };
   }
 
+  /* fatura em CSV (XP): Data;Estabelecimento;Portador;Valor;Parcela. O vencimento vem do nome do arquivo (ex.: Fatura2026-12-05.csv) */
+  function parseCsv(text, fileName) {
+    const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    const head = (lines[0] || '').toLowerCase();
+    if (!/data/.test(head) || !/valor/.test(head) || !/estabelecimento|descri/.test(head)) return { ok: false, banco: 'outro', erro: 'Esse CSV não tem o formato esperado (Data; Estabelecimento; Portador; Valor; Parcela).', lines: [] };
+    const cols = head.split(';').map((c) => c.trim());
+    const ix = (re) => cols.findIndex((c) => re.test(c));
+    const iD = ix(/^data/), iE = ix(/estabelecimento|descri/), iP = ix(/portador|titular/), iV = ix(/^valor/), iN = ix(/parcela/);
+    let venc = null;
+    const fm = String(fileName || '').match(/(\d{4})-(\d{2})-(\d{2})/) || null;
+    if (fm) venc = `${fm[1]}-${fm[2]}-${fm[3]}`;
+    else { const f2 = String(fileName || '').match(/(\d{2})[-_.](\d{2})[-_.](\d{4})/); if (f2) venc = `${f2[3]}-${f2[2]}-${f2[1]}`; }
+    if (!venc) return { ok: false, banco: 'xp', erro: 'Não achei o vencimento. Deixe a data no nome do arquivo, como veio da XP (ex.: Fatura2026-12-05.csv).', lines };
+    const tx = [], pags = [], portadores = new Set();
+    for (const l of lines.slice(1)) {
+      const c = l.split(';').map((x) => x.trim());
+      const dm = (c[iD] || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+      const vm = (c[iV] || '').match(/(-)?\s*(\d{1,3}(?:\.\d{3})*,\d{2})/);
+      if (!dm || !vm) continue;
+      const neg = /-/.test((c[iV] || '').replace(/R\$/, ''));
+      const v = (neg ? -1 : 1) * num(vm[2]);
+      const d = `${dm[3]}-${dm[2]}-${dm[1]}`;
+      let desc = (c[iE] || '').replace(/\s+/g, ' ').trim();
+      if (c[iP]) portadores.add(c[iP]);
+      if (/^pagamento/i.test(desc) && v < 0) { pags.push({ d, desc, v }); continue; }
+      const pm = (c[iN] || '').match(/(\d{1,2})\s*de\s*(\d{1,2})/i);
+      const parc = pm && +pm[1] <= +pm[2] && +pm[2] > 1 ? [+pm[1], +pm[2]] : null;
+      tx.push({ d, desc, parc, v, tipo: /anuidade|iof|juros|tarifa|encargo|multa/i.test(desc) ? 'serv' : 'compra', hint: '' });
+    }
+    const soma = Math.round(tx.reduce((s, t) => s + t.v, 0) * 100) / 100;
+    const nrm = (x) => x.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
+    const tit = portadores.size === 1 ? [...portadores][0] : null;
+    const futuro = projectFuture({ tx });
+    return {
+      ok: tx.length > 0, banco: 'xp', generico: false, venc, proxFech: null, emissao: null, total: soma, final: null,
+      titular: tit, ident: tit ? nrm(tit) : null, tx, pags, futuro: [], futuroK: null, soma, conferido: null, futuroConferido: null, csv: true,
+      erro: tx.length ? null : 'Li o arquivo mas não achei lançamentos.', lines,
+    };
+  }
+
   /* parcelas que ainda virão, a partir das compras parceladas desta fatura.
      k = quantos meses depois do vencimento desta fatura */
   function projectFuture(f) {
@@ -1060,7 +1100,7 @@ const Parser = (() => {
     return out;
   }
 
-  return { parse, pageLines, num, projectFuture, splitParcela, detectBank };
+  return { parse, parseCsv, pageLines, num, projectFuture, splitParcela, detectBank };
 })();
 
 
@@ -1087,8 +1127,8 @@ const CATS = [
 ];
 const CAT = Object.fromEntries(CATS.map(([id, nome, cor]) => [id, { id, nome, cor }]));
 
-const SIGLA = { porto: 'PS', renner: 'Re', itau: 'itaú', santander: 'San', bb: 'BB', caixa: 'CX', nubank: 'Nu', inter: 'In', outro: '•' };
-const BANCOS = { porto: 'Porto', renner: 'Renner', itau: 'Itaú', santander: 'Santander', bb: 'Banco do Brasil', caixa: 'Caixa', nubank: 'Nubank', inter: 'Inter', outro: 'Outro' };
+const SIGLA = { porto: 'PS', renner: 'Re', itau: 'itaú', xp: 'XP', santander: 'San', bb: 'BB', caixa: 'CX', nubank: 'Nu', inter: 'In', outro: '•' };
+const BANCOS = { porto: 'Porto', renner: 'Renner', itau: 'Itaú', xp: 'XP', santander: 'Santander', bb: 'Banco do Brasil', caixa: 'Caixa', nubank: 'Nubank', inter: 'Inter', outro: 'Outro' };
 
 const KEYWORDS = [
   [/PICOL|UBER\s*\*?\s*EATS|IFOOD|IFD\*|RAPPI|AIQFOME|ZE DELIVERY|RESTAURANTE|LANCH|PIZZA|BURGER|MC ?DONALD|BK |SUBWAY|PADARIA|PANIFIC|CAFE|SORVET|ACAI|CHURRASC|BAR |BOTECO|OUTBACK|COCO BAMBU|HABIB/, 'alimentacao'],
@@ -1431,11 +1471,26 @@ let pending = null; // {name, buf}
 let lastLines = null;
 async function importFile(file) {
   if (!file) return;
-  if (!/pdf$/i.test(file.type) && !/\.pdf$/i.test(file.name)) { toast('Esse arquivo não é PDF. Baixe a fatura em PDF no app do banco.'); return; }
+  if (/\.csv$/i.test(file.name) || /csv$/i.test(file.type)) { await importCsv(file); return; }
+  if (!/pdf$/i.test(file.type) && !/\.pdf$/i.test(file.name)) { toast('Esse arquivo não é PDF nem CSV. Baixe a fatura em PDF (ou CSV, no caso da XP) no app do banco.'); return; }
   const buf = await file.arrayBuffer();
   pending = { name: file.name, buf };
   S.pwd = null;
   await runImport();
+}
+
+async function importCsv(file) {
+  const buf = await file.arrayBuffer();
+  let text = new TextDecoder('utf-8').decode(buf);
+  if (text.includes('\ufffd')) text = new TextDecoder('windows-1252').decode(buf);
+  pending = { name: file.name, buf: null };
+  S.pwd = null;
+  const r = Parser.parseCsv(text, file.name);
+  lastLines = r.lines;
+  if (!r.ok) { S.importErr = { msg: r.erro, banco: r.banco }; render(); return; }
+  S.importErr = null;
+  leaveExample();
+  decideImport(r, file.name);
 }
 
 async function runImport(password) {
@@ -1514,7 +1569,7 @@ function placeFatura(r, name, card, outra, nomeNovo) {
   const f = {
     id, cardId: card.id, banco: r.banco, final: r.final, venc: r.venc, proxFech: r.proxFech, emissao: r.emissao,
     total: r.total, soma: r.soma, limite: r.limite, totalLanc: r.totalLanc, totalFuturo: r.totalFuturo, encargos: r.encargos || 0, encargosItens: r.encargosItens || [],
-    conferido: r.conferido, futuroConferido: r.futuroConferido, generico: r.generico,
+    conferido: r.conferido, futuroConferido: r.futuroConferido, generico: r.generico, csv: !!r.csv,
     tx: r.tx, pags: r.pags, futuro: r.futuro || [], futuroK: r.futuroK || null, importedAt: new Date().toISOString(), arquivo: name,
   };
   S.data.faturas[id] = f;
@@ -2052,11 +2107,11 @@ function viewCalendario() {
 
 function importBox() {
   return `<div class="panel import ${S.importing ? 'busy' : ''}" id="dropzone">
-    <input type="file" id="pdffile" accept="application/pdf,.pdf" class="sr">
+    <input type="file" id="pdffile" accept="application/pdf,.pdf,.csv,text/csv" class="sr">
     <label for="pdffile" class="drop">
       <svg viewBox="0 0 24 24" class="drop-ic"><path d="M12 15V3M7 8l5-5 5 5"/><path d="M4 15v4a2 2 0 002 2h12a2 2 0 002-2v-4"/></svg>
-      <span class="drop-t">${S.importing ? 'Lendo a fatura…' : 'Importar fatura em PDF'}</span>
-      <span class="drop-s">Toque para escolher ou arraste o arquivo aqui. Leitura completa de Itaú, Nubank, Renner e Porto. Santander, Banco do Brasil e outros usam a leitura genérica.</span>
+      <span class="drop-t">${S.importing ? 'Lendo a fatura…' : 'Importar fatura (PDF ou CSV)'}</span>
+      <span class="drop-s">Toque para escolher ou arraste o arquivo aqui. Leitura completa de Itaú, Nubank, Renner, Porto, BV e XP (CSV). Santander, Banco do Brasil e outros usam a leitura genérica.</span>
     </label>
     ${S.pwd ? `<form class="pwd" data-form="pwd">
       <label for="pdfpwd">Este PDF tem senha${S.pwd.wrong ? ' — a senha não abriu, tente de novo' : ''}. Bancos costumam usar os primeiros dígitos do CPF.</label>
@@ -2129,6 +2184,7 @@ function viewFatura(f) {
       </div>
       ${f.conferido ? `<div class="check ok"><span class="stamp">conferido</span>A soma dos ${f.tx.length} lançamentos (${brl(f.soma)}) bate com o total informado pelo banco.${enc ? ` Com ${brl(enc)} de encargos, fecha nos ${brl(f.total)} a pagar.` : ''}${f.futuroConferido ? ' As parcelas futuras também batem.' : ''}</div>`
         : f.conferido === false ? `<div class="check bad"><span class="stamp warn">divergência</span>A soma lida (${brl(f.soma)}) não bate com o total do banco (${brl(f.totalLanc)}): ${f.soma < f.totalLanc ? 'faltam' : 'sobram'} ${brl(Math.abs(r2(f.totalLanc - f.soma)))}. Se o app foi atualizado depois que você subiu esta fatura, importe o mesmo PDF de novo e ela é substituída. Se continuar assim, envie o PDF para quem mantém o app, para ajustar a leitura do seu banco.</div>`
+        : f.csv ? `<div class="check"><span class="stamp warn">conferir</span>O CSV não traz o total do banco: confira se o valor a pagar (${brl(f.total)}) é o mesmo da fatura no app.</div>`
         : `<div class="check"><span class="stamp warn">conferir</span>Leitura genérica: confira os lançamentos com o PDF. Se algo vier errado, <button class="link" data-act="copylines">copie o texto lido</button> e me mande no chat.</div>`}
       ${enc ? `<div class="note"><strong>Encargos desta fatura:</strong> ${(f.encargosItens || []).map((e) => `${esc(e.nome)} ${brl(e.v)}`).join(' · ')}. Multa e juros de mora aparecem quando a fatura anterior é paga depois do vencimento.</div>` : ''}
       ${f.total === 0 ? (() => { const p = f.pags.find((x) => Math.abs(-x.v - f.soma) < 0.02); return `<div class="note">Esta fatura veio zerada porque ${p ? `o pagamento de ${brl(-p.v)} em ${dBR(p.d)} já cobriu os lançamentos` : 'pagamentos feitos antes do fechamento já cobriram os lançamentos'}. Os gastos continuam contando no mês.</div>`; })() : ''}
