@@ -655,7 +655,7 @@ const Parser = (() => {
         r.items.sort((a, b) => a.x - b.x);
         let s = '', end = null;
         for (const it of r.items) {
-          if (end != null) s += it.x - end > 1.2 ? ' ' : '';
+          if (end != null) s += it.x - end > (opts.gap && it.x - end > 14 ? 14 : 1.2) ? (opts.gap && it.x - end > 14 ? ' \u00a6 ' : ' ') : '';
           s += it.s;
           end = it.x + it.w;
         }
@@ -671,6 +671,7 @@ const Parser = (() => {
     if (/portoseg|cartao porto|cartaoportoseguro|porto seguro cia|whatsapp oficial da porto/.test(t)) return 'porto';
     if (/realize sociedade de credito|cartoes renner|lojas renner|meu cartao/.test(t)) return 'renner';
     if (/nubank|nu pagamentos/.test(t)) return 'nubank';
+    if (/banco bv|\bbv mais\b|votorantim/.test(t)) return 'bv';
     if (/itau unibanco|itaucard|itau cartoes|\bitau\b/.test(t)) return 'itau';
     if (/santander/.test(t)) return 'santander';
     if (/banco do brasil|ourocard/.test(t)) return 'bb';
@@ -851,10 +852,20 @@ const Parser = (() => {
     if (!parc) { const sp = splitParcela(d); d = sp.desc.replace(/\s+-$/, ''); parc = sp.parc; }
     return { desc: d, parc };
   }
+  // BV: colunas Data | Descrição | Localização | Valor (o PDF separa as colunas por um espaço grande, marcado com ¦)
+  function bvRow(l) {
+    if (l.indexOf('\u00a6') < 0) return l;
+    const m = l.match(/^(\d{2}\/\d{2})\s*\u00a6?\s*(.*)$/);
+    if (!m) return l.replace(/\s*\u00a6\s*/g, ' ');
+    const parts = m[2].split(/\s*\u00a6\s*/).filter(Boolean);
+    if (parts.length >= 3) parts.splice(parts.length - 2, 1); // tira a localização
+    return m[1] + ' ' + parts.join(' ').replace(/\(-\)\s*/g, '-');
+  }
   function parseRows(rows, h, banco) {
     const tx = [], pags = [], futuro = [];
     let sec = 'compra';
     const vy = +h.venc.slice(0, 4), vm = +h.venc.slice(5, 7);
+    if (banco === 'bv') rows = rows.map(bvRow);
     for (const l of rows) {
       const L = strip(l).toLowerCase();
       if (/compras parceladas.*proximas faturas/.test(L)) { sec = 'futuro'; continue; }
@@ -940,6 +951,11 @@ const Parser = (() => {
           else break;
         }
       }
+    } else if (banco === 'bv') {
+      const n = find(/^Total de lan[çc]amentos nacionais/), i2 = find(/^Total de lan[çc]amentos internacionais/);
+      if (n != null) h.totalLanc = Math.round((n + (i2 || 0)) * 100) / 100;
+      const t = find(/^Total desta fatura/); if (t != null) h.total = t;
+      const lim = find(/^Limite total/); if (lim != null) h.limite = lim;
     } else if (banco === 'renner') {
       const c = find(/^Compras \/ D[ée]bitos/i); if (c != null) h.totalLanc = c;
       const t = find(/^Total R\$/i); if (t != null) h.total = t;
@@ -994,7 +1010,7 @@ const Parser = (() => {
     const lines = pages.flatMap((p) => pageLines(p.items, p.width));
     const text = lines.join('\n');
     const banco = detectBank(text);
-    const rows = banco === 'itau' ? null : pages.flatMap((p) => pageLines(p.items, p.width, { rows: true }));
+    const rows = banco === 'itau' ? null : pages.flatMap((p) => pageLines(p.items, p.width, { rows: true, gap: banco === 'bv' }));
     const h = header(lines, text);
     if (!h.venc) {
       const m = (rows || lines).join('\n').match(/(?:vencimento:?|FATURA)\s*(\d{2}) (JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ) (\d{4})/i);
@@ -1016,7 +1032,7 @@ const Parser = (() => {
     let futuroConferido = null;
     if (h.totalFuturo != null) futuroConferido = Math.abs(somaFut - h.totalFuturo) < (banco === 'nubank' || banco === 'porto' ? 1 : 0.02);
     return {
-      ok: r.tx.length > 0, banco, generico: !['itau', 'nubank', 'renner'].includes(banco), ...h, tx: r.tx, pags: r.pags, futuro: r.futuro || [], futuroK, soma, conferido, futuroConferido,
+      ok: r.tx.length > 0, banco, generico: !['itau', 'nubank', 'renner', 'bv'].includes(banco), ...h, tx: r.tx, pags: r.pags, futuro: r.futuro || [], futuroK, soma, conferido, futuroConferido,
       erro: r.tx.length ? null : 'Li o PDF mas não encontrei lançamentos no formato esperado.', lines,
     };
   }
