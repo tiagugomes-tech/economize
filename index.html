@@ -316,6 +316,9 @@ body.is-locked .top, body.is-locked main { display: none; }
 .lock-brand { display: flex; align-items: center; gap: 10px; font-family: var(--f-display); font-weight: 700; font-size: 1.15rem; }
 .lock-h { font-size: 1.5rem; letter-spacing: -.015em; margin-top: 6px; }
 .lock-p { margin: -6px 0 0; color: var(--muted); font-size: .92rem; }
+.keep-row { display: flex; gap: 10px; align-items: flex-start; font-size: .92rem; cursor: pointer; }
+.keep-row input { width: 20px; height: 20px; margin-top: 2px; flex: none; }
+.keep-row small { display: block; color: var(--muted, #667); font-size: .78rem; margin-top: 2px; }
 .lock-form { display: flex; flex-direction: column; gap: 12px; }
 .lock-form .fld input { font-size: 1.05rem; padding: 11px 12px; background: var(--surface-2); }
 .pw { position: relative; display: block; }
@@ -918,8 +921,8 @@ const Parser = (() => {
   function rowTotals(rows, h, banco) {
     const find = (re) => { for (const l of rows) if (re.test(l)) { const v = rowValOnly(l); if (v != null) return v; } return null; };
     if (banco === 'nubank') {
-      const c = find(/^Total de compras de todos os cart/i), o = find(/^Outros lan[çc]amentos/i);
-      if (c != null) h.totalLanc = Math.round((c + (o || 0)) * 100) / 100;
+      const c = find(/^Total de compras de todos os cart/i), o = find(/^Outros lan[çc]amentos/i), io = find(/^IOF de compras internacionais/i);
+      if (c != null) h.totalLanc = Math.round((c + (o || 0) + (io || 0)) * 100) / 100;
       const t = find(/^Total a pagar\s+R\$\s?\d{1,3}(?:\.\d{3})*,\d{2}$/i); if (t != null) h.total = t;
       const f = find(/^Saldo em aberto total/i); if (f != null) h.totalFuturo = f;
       const lim = find(/Limite total do cart[ãa]o de cr[ée]dito/i); if (lim != null) h.limite = lim;
@@ -1315,6 +1318,7 @@ const Store = {
       S.loaded = true;
       S.locked = true;
       render();
+      Keep.restore();
     }
   },
   cfgDirty: false,
@@ -2329,7 +2333,7 @@ async function lockSubmit(form) {
 let hiddenAt = 0;
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) hiddenAt = Date.now();
-  else if (hiddenAt && Date.now() - hiddenAt > 5 * 60 * 1000 && !S.locked && S.mode === 'contas') logout();
+  else if (hiddenAt && Date.now() - hiddenAt > 30 * 60 * 1000 && !S.locked && S.mode === 'contas' && !S.session?.keep) logout();
   else if (hiddenAt && Date.now() - hiddenAt > 5 * 60 * 1000 && !S.locked && S.data.cfg.lock) { S.locked = true; render(); }
 });
 
@@ -2354,13 +2358,32 @@ const Acc = {
     return JSON.parse(new TextDecoder().decode(pt));
   },
 };
+const KEEP_DAYS = 30;
+const Keep = {
+  db() { return new Promise((res, rej) => { const q = indexedDB.open('economize-keep', 1); q.onupgradeneeded = () => q.result.createObjectStore('k'); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); },
+  async get() { try { const db = await this.db(); return await new Promise((res) => { const r = db.transaction('k').objectStore('k').get('s'); r.onsuccess = () => res(r.result || null); r.onerror = () => res(null); }); } catch (e) { return null; } },
+  async set(u, key) { try { const db = await this.db(); await new Promise((res) => { const t = db.transaction('k', 'readwrite'); t.objectStore('k').put({ u, key, exp: Date.now() + KEEP_DAYS * 864e5 }, 's'); t.oncomplete = res; t.onerror = res; }); } catch (e) {} },
+  async clear() { try { const db = await this.db(); await new Promise((res) => { const t = db.transaction('k', 'readwrite'); t.objectStore('k').delete('s'); t.oncomplete = res; t.onerror = res; }); } catch (e) {} },
+  async restore() {
+    const k = await this.get();
+    if (!k) return false;
+    const rec = Acc.list().find((r) => r.u === k.u), raw = localStorage.getItem(Acc.dataKey(k.u));
+    if (!rec || !raw || !(k.exp > Date.now())) { await this.clear(); return false; }
+    try {
+      let data = { ...EMPTY(), ...(await Acc.dec(k.key, JSON.parse(raw))) };
+      data.cfg = { ...EMPTY().cfg, ...data.cfg };
+      startSession({ u: k.u, nome: rec.nome, key: k.key, keep: true }, data);
+      return true;
+    } catch (e) { await this.clear(); return false; }
+  },
+};
 const normUser = (u) => strip(u).toLowerCase().trim();
 let accKey = '';
 function renderAccounts(box) {
   const contas = Acc.list();
   const A = S.acc || (S.acc = { mode: contas.length ? 'entrar' : 'criar', msg: '', user: contas.length === 1 ? contas[0].u : '' });
   if (A.mode === 'entrar' && !contas.length) A.mode = 'criar';
-  const key = [A.mode, A.msg, A.busy, A.user, contas.map((c) => c.u).join(',')].join('|');
+  const key = [A.mode, A.msg, A.busy, A.user, A.keep, contas.map((c) => c.u).join(',')].join('|');
   if (key === accKey && box.innerHTML) return;
   accKey = key;
   const pw = (id, label, ac) => `<label class="fld" for="${id}"><span>${label}</span><span class="pw"><input id="${id}" type="password" autocomplete="${ac}" required minlength="4"><button type="button" class="pw-eye" data-act="peek" data-for="${id}" aria-label="Mostrar senha"><svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button></span></label>`;
@@ -2372,6 +2395,7 @@ function renderAccounts(box) {
     <form data-form="acc-entrar" class="lock-form">
       <label class="fld" for="ac-u"><span>Usuário</span><input id="ac-u" autocomplete="username" autocapitalize="none" spellcheck="false" required value="${esc(A.user || '')}"></label>
       ${pw('ac-p', 'Senha', 'current-password')}
+      <label class="keep-row"><input id="ac-keep" type="checkbox" ${A.keep ? 'checked' : ''}><span>Manter conectado neste aparelho por ${KEEP_DAYS} dias<small>Use só no seu celular ou computador. Para sair, toque no cadeado.</small></span></label>
       ${msg}
       <button class="btn lg" type="submit" ${A.busy ? 'disabled' : ''}>${A.busy ? 'Abrindo…' : 'Entrar'}</button>
     </form>
@@ -2433,6 +2457,7 @@ async function accSubmit(form) {
       A.user = u;
       if (Date.now() < (A.waitUntil || 0)) return fail(`Muitas tentativas. Espere ${Math.ceil((A.waitUntil - Date.now()) / 1000)} segundos.`);
       const rec = Acc.list().find((r) => r.u === u);
+      A.keep = !!$('#ac-keep')?.checked;
       A.busy = true; A.msg = ''; renderLock();
       if (!rec) return fail('Usuário não encontrado neste aparelho.');
       const key = await Acc.key(v['ac-p'], rec.salt, rec.iter);
@@ -2445,7 +2470,9 @@ async function accSubmit(form) {
       const raw = localStorage.getItem(Acc.dataKey(u));
       if (raw) data = { ...EMPTY(), ...(await Acc.dec(key, JSON.parse(raw))) };
       data.cfg = { ...EMPTY().cfg, ...data.cfg };
-      startSession({ u, nome: rec.nome, key }, data);
+      const keep = A.keep; A.keep = false;
+      startSession({ u, nome: rec.nome, key, keep }, data);
+      if (keep) Keep.set(u, key); else Keep.clear();
       return;
     }
     if (form === 'acc-criar') {
@@ -2481,7 +2508,7 @@ async function accSubmit(form) {
       rec.salt = salt; rec.check = await Acc.enc(key, { ok: true });
       localStorage.setItem(Acc.dataKey(sess.u), JSON.stringify(await Acc.enc(key, S.data)));
       Acc.saveList(list);
-      S.session = { ...sess, key };
+      S.session = { ...sess, key, keep: false }; Keep.clear();
       A.busy = false;
       unlock();
       toast('Senha trocada.');
@@ -2503,6 +2530,7 @@ function startSession(sess, data) {
 }
 function logout(silent) {
   clearTimeout(Store.encTimer);
+  Keep.clear();
   const u = S.session?.u;
   // grava antes de sair
   if (S.session && !silent) Acc.enc(S.session.key, S.data).then((b) => { try { localStorage.setItem(Acc.dataKey(u), JSON.stringify(b)); } catch (e) {} });
