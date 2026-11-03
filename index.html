@@ -753,7 +753,9 @@ const Parser = (() => {
   function parseItau(lines, h) {
     const tx = [], pags = [], futuro = [];
     let sec = null, holder = null, last = null;
-    for (const l of lines) {
+    for (const l0 of lines) {
+      // "129,51 L" (letra de marcação depois do valor) e "- 2,69" (sinal separado do valor)
+      const l = l0.replace(/(\d,\d{2})\s+[A-Z]$/, '$1').replace(/\s-\s+(\d{1,3}(?:\.\d{3})*,\d{2})$/, ' -$1');
       const L = strip(l).toLowerCase();
       if (sec === 'futuro') {
         const fm = l.match(TX);
@@ -782,6 +784,7 @@ const Parser = (() => {
         continue;
       }
       if (/^DATA\b/.test(l)) continue;
+      if (/^(titular\s+\d{3,4}$|continua|total de |total dos )/i.test(l) || /%\s*do total financiado\s*$/i.test(l)) { continue; }
       if (sec !== 'pag' && /^[A-ZÀ-Ú][A-ZÀ-Ú .']{4,}$/.test(l) && !last) { holder = l.trim(); continue; }
       if (last && !/\d{2}\/\d{2}/.test(l.slice(0, 5))) {
         if (last.tipo === 'serv') {
@@ -2105,7 +2108,7 @@ function viewFatura(f) {
         ${f.limite ? `<div><div class="lbl">Limite</div><div class="val money">${brl(f.limite)}</div></div>` : ''}
       </div>
       ${f.conferido ? `<div class="check ok"><span class="stamp">conferido</span>A soma dos ${f.tx.length} lançamentos (${brl(f.soma)}) bate com o total informado pelo banco.${enc ? ` Com ${brl(enc)} de encargos, fecha nos ${brl(f.total)} a pagar.` : ''}${f.futuroConferido ? ' As parcelas futuras também batem.' : ''}</div>`
-        : f.conferido === false ? `<div class="check bad"><span class="stamp warn">divergência</span>A soma lida (${brl(f.soma)}) não bate com o total do banco (${brl(f.totalLanc)}). O leitor foi corrigido: importe este PDF de novo e esta fatura é substituída pela versão certa.</div>`
+        : f.conferido === false ? `<div class="check bad"><span class="stamp warn">divergência</span>A soma lida (${brl(f.soma)}) não bate com o total do banco (${brl(f.totalLanc)}): ${f.soma < f.totalLanc ? 'faltam' : 'sobram'} ${brl(Math.abs(r2(f.totalLanc - f.soma)))}. Se o app foi atualizado depois que você subiu esta fatura, importe o mesmo PDF de novo e ela é substituída. Se continuar assim, envie o PDF para quem mantém o app, para ajustar a leitura do seu banco.</div>`
         : `<div class="check"><span class="stamp warn">conferir</span>Leitura genérica: confira os lançamentos com o PDF. Se algo vier errado, <button class="link" data-act="copylines">copie o texto lido</button> e me mande no chat.</div>`}
       ${enc ? `<div class="note"><strong>Encargos desta fatura:</strong> ${(f.encargosItens || []).map((e) => `${esc(e.nome)} ${brl(e.v)}`).join(' · ')}. Multa e juros de mora aparecem quando a fatura anterior é paga depois do vencimento.</div>` : ''}
       ${f.total === 0 ? (() => { const p = f.pags.find((x) => Math.abs(-x.v - f.soma) < 0.02); return `<div class="note">Esta fatura veio zerada porque ${p ? `o pagamento de ${brl(-p.v)} em ${dBR(p.d)} já cobriu os lançamentos` : 'pagamentos feitos antes do fechamento já cobriram os lançamentos'}. Os gastos continuam contando no mês.</div>`; })() : ''}
