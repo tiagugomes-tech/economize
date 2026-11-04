@@ -671,6 +671,7 @@ const Parser = (() => {
     if (/portoseg|cartao porto|cartaoportoseguro|porto seguro cia|whatsapp oficial da porto/.test(t)) return 'porto';
     if (/realize sociedade de credito|cartoes renner|lojas renner|meu cartao/.test(t)) return 'renner';
     if (/nubank|nu pagamentos/.test(t)) return 'nubank';
+    if (/banco xp|cartao xp|xp visa|xp investimentos/.test(t)) return 'xp';
     if (/banco bv|\bbv mais\b|votorantim/.test(t)) return 'bv';
     if (/itau unibanco|itaucard|itau cartoes|\bitau\b/.test(t)) return 'itau';
     if (/santander/.test(t)) return 'santander';
@@ -866,6 +867,8 @@ const Parser = (() => {
     let sec = 'compra';
     const vy = +h.venc.slice(0, 4), vm = +h.venc.slice(5, 7);
     if (banco === 'bv') rows = rows.map(bvRow);
+    // XP: colunas "R$  US$"; a coluna em dólar vem depois do valor em reais. Linhas com data completa (dd/mm/aaaa) são cabeçalho, não lançamento
+    if (banco === 'xp') rows = rows.filter((l) => !/^\d{2}\/\d{2}\/\d{4}\b/.test(l)).map((l) => (/^\d{2}\/\d{2}\/\d{2}\s/.test(l) ? l.replace(/\s(-?\d{1,3}(?:\.\d{3})*,\d{2})\s+-?\d{1,3}(?:\.\d{3})*,\d{2}$/, ' $1') : l));
     for (const l of rows) {
       const L = strip(l).toLowerCase();
       if (/compras parceladas.*proximas faturas/.test(L)) { sec = 'futuro'; continue; }
@@ -951,6 +954,11 @@ const Parser = (() => {
           else break;
         }
       }
+    } else if (banco === 'xp') {
+      const d = find(/^Despesas at[ée] a emiss[ãa]o/), t = find(/^Valor total devido/), lim = find(/^Limite total de cr[ée]dito/);
+      if (d != null) h.totalLanc = d;
+      if (t != null) h.total = t;
+      if (lim != null) h.limite = lim;
     } else if (banco === 'bv') {
       const n = find(/^Total de lan[çc]amentos nacionais/), i2 = find(/^Total de lan[çc]amentos internacionais/);
       if (n != null) h.totalLanc = Math.round((n + (i2 || 0)) * 100) / 100;
@@ -1032,8 +1040,40 @@ const Parser = (() => {
     let futuroConferido = null;
     if (h.totalFuturo != null) futuroConferido = Math.abs(somaFut - h.totalFuturo) < (banco === 'nubank' || banco === 'porto' ? 1 : 0.02);
     return {
-      ok: r.tx.length > 0, banco, generico: !['itau', 'nubank', 'renner', 'bv'].includes(banco), ...h, tx: r.tx, pags: r.pags, futuro: r.futuro || [], futuroK, soma, conferido, futuroConferido,
+      ok: r.tx.length > 0, banco, generico: !['itau', 'nubank', 'renner', 'bv', 'xp'].includes(banco), ...h, tx: r.tx, pags: r.pags, futuro: r.futuro || [], futuroK, soma, conferido, futuroConferido,
       erro: r.tx.length ? null : 'Li o PDF mas não encontrei lançamentos no formato esperado.', lines,
+    };
+  }
+
+  /* fatura em CSV do Nubank: date,title,amount (valores como "1.234,56"; pagamentos negativos). Vencimento vem do nome do arquivo (ex.: Nubank_2026-12-08.csv) */
+  function parseCsvNu(lines, fileName) {
+    const f = String(fileName || '');
+    let venc = null;
+    const fm = f.match(/(\d{4})-(\d{2})-(\d{2})/);
+    if (fm) venc = `${fm[1]}-${fm[2]}-${fm[3]}`;
+    else { const f2 = f.match(/(\d{2})[-_.](\d{2})[-_.](\d{4})/); if (f2) venc = `${f2[3]}-${f2[2]}-${f2[1]}`; }
+    if (!venc) return { ok: false, banco: 'nubank', erro: 'Não achei o vencimento. Deixe a data no nome do arquivo, como veio do Nubank (ex.: Nubank_2026-12-08.csv).', lines };
+    const split = (l) => { const out = []; let cur = '', q = false; for (const ch of l) { if (ch === '"') q = !q; else if (ch === ',' && !q) { out.push(cur); cur = ''; } else cur += ch; } out.push(cur); return out.map((x) => x.trim()); };
+    const tx = [], pags = [];
+    for (const l of lines.slice(1)) {
+      const c = split(l);
+      const dm = (c[0] || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      const vm = (c[c.length - 1] || '').match(/(\d{1,3}(?:\.\d{3})*,\d{2}|\d+\.\d{2})\s*$/);
+      if (!dm || !vm) continue;
+      const raw = c[c.length - 1];
+      const neg = /-/.test(raw);
+      const v = (neg ? -1 : 1) * (vm[1].includes(',') ? num(vm[1]) : parseFloat(vm[1]));
+      const d = `${dm[1]}-${dm[2]}-${dm[3]}`;
+      let title = c.slice(1, c.length - 1).join(',').replace(/\s+/g, ' ').trim();
+      if (/^pagamento/i.test(title) && v < 0) { pags.push({ d, desc: title, v }); continue; }
+      const { desc, parc } = cleanDesc(title);
+      tx.push({ d, desc: desc || title, parc, v, tipo: /anuidade|iof|juros|tarifa|encargo|multa/i.test(desc) ? 'serv' : 'compra', hint: '' });
+    }
+    const soma = Math.round(tx.reduce((s, t) => s + t.v, 0) * 100) / 100;
+    return {
+      ok: tx.length > 0, banco: 'nubank', generico: false, venc, proxFech: null, emissao: null, total: soma, final: null,
+      titular: null, ident: null, tx, pags, futuro: [], futuroK: null, soma, conferido: null, futuroConferido: null, csv: true,
+      erro: tx.length ? null : 'Li o arquivo mas não achei lançamentos.', lines,
     };
   }
 
@@ -1041,6 +1081,7 @@ const Parser = (() => {
   function parseCsv(text, fileName) {
     const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
     const head = (lines[0] || '').toLowerCase();
+    if (/^date,title,amount/.test(head)) return parseCsvNu(lines, fileName);
     if (!/data/.test(head) || !/valor/.test(head) || !/estabelecimento|descri/.test(head)) return { ok: false, banco: 'outro', erro: 'Esse CSV não tem o formato esperado (Data; Estabelecimento; Portador; Valor; Parcela).', lines: [] };
     const cols = head.split(';').map((c) => c.trim());
     const ix = (re) => cols.findIndex((c) => re.test(c));
@@ -1472,7 +1513,7 @@ let lastLines = null;
 async function importFile(file) {
   if (!file) return;
   if (/\.csv$/i.test(file.name) || /csv$/i.test(file.type)) { await importCsv(file); return; }
-  if (!/pdf$/i.test(file.type) && !/\.pdf$/i.test(file.name)) { toast('Esse arquivo não é PDF nem CSV. Baixe a fatura em PDF (ou CSV, no caso da XP) no app do banco.'); return; }
+  if (!/pdf$/i.test(file.type) && !/\.pdf$/i.test(file.name)) { toast('Esse arquivo não é PDF nem CSV. Baixe a fatura em PDF (ou CSV, no caso da XP e do Nubank) no app do banco.'); return; }
   const buf = await file.arrayBuffer();
   pending = { name: file.name, buf };
   S.pwd = null;
@@ -2111,7 +2152,7 @@ function importBox() {
     <label for="pdffile" class="drop">
       <svg viewBox="0 0 24 24" class="drop-ic"><path d="M12 15V3M7 8l5-5 5 5"/><path d="M4 15v4a2 2 0 002 2h12a2 2 0 002-2v-4"/></svg>
       <span class="drop-t">${S.importing ? 'Lendo a fatura…' : 'Importar fatura (PDF ou CSV)'}</span>
-      <span class="drop-s">Toque para escolher ou arraste o arquivo aqui. Leitura completa de Itaú, Nubank, Renner, Porto, BV e XP (CSV). Santander, Banco do Brasil e outros usam a leitura genérica.</span>
+      <span class="drop-s">Toque para escolher ou arraste o arquivo aqui. Leitura completa de Itaú, Nubank, Renner, Porto, BV, XP e Nubank (CSV). Santander, Banco do Brasil e outros usam a leitura genérica.</span>
     </label>
     ${S.pwd ? `<form class="pwd" data-form="pwd">
       <label for="pdfpwd">Este PDF tem senha${S.pwd.wrong ? ' — a senha não abriu, tente de novo' : ''}. Bancos costumam usar os primeiros dígitos do CPF.</label>
