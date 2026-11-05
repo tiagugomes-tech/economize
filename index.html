@@ -1270,6 +1270,9 @@ const billActive = (b, M) => (!b.inicio || b.inicio <= M) && (!b.fim || M <= b.f
 const isPaid = (k) => !!D().cfg.paid[k];
 
 function projection(cid, M) {
+  // mesmo banco e mesmo final de cartão já com fatura importada no mês: não estima por cima
+  const me = cardById(cid);
+  if (me && me.final && cards().some((o) => o.id !== cid && o.banco === me.banco && o.final === me.final && allFat().some((g) => g.cardId === o.id && g.venc.slice(0, 7) === M))) return null;
   const f = fatOfCard(cid).find((x) => x.venc.slice(0, 7) < M);
   if (!f) return null;
   const k = diffM(f.venc.slice(0, 7), M);
@@ -1575,8 +1578,10 @@ function decideImport(r, name) {
     const mesmo = cands.filter((c) => c.ident === r.ident);
     if (mesmo.length === 1) { placeFatura(r, name, mesmo[0], false); return; }
     if (cands.length && cands.every((c) => c.ident && c.ident !== r.ident)) {
-      const tit = (r.titular || '').toLowerCase().replace(/(^|\s)\S/g, (x) => x.toUpperCase()).slice(0, 24);
-      placeFatura(r, name, null, true, `${BANCOS[r.banco] || 'Cartão'}${tit ? ' · ' + tit : ''}`);
+      // titular diferente do(s) cartão(ões) guardado(s): pode ser outra pessoa/empresa ou só a leitura do nome que mudou. Pergunta.
+      S.choose = { r, name, ids: cands.map((c) => c.id), nome: r.titular ? `${BANCOS[r.banco] || 'Cartão'} · ${r.titular.toLowerCase().replace(/(^|\s)\S/g, (x) => x.toUpperCase()).slice(0, 24)}` : '' };
+      pending = null;
+      render();
       return;
     }
   }
@@ -2272,6 +2277,7 @@ function viewCadastro() {
     ${field('e-venc', 'Dia do vencimento', d.venc, 'type="number" min="1" max="31" inputmode="numeric" required')}
     ${field('e-limite', 'Limite (R$)', d.limite, 'inputmode="decimal" placeholder="0,00"')}
     <div class="form-acts"><button class="btn" type="submit">Salvar cartão</button><button class="btn ghost" type="button" data-act="cancel">Cancelar</button>
+    ${d.id && cards().length > 1 ? (S.confirm === 'mergecard' && cardById(S.mergeTo) ? `<div class="note" style="margin-top:10px">As faturas de <b>${esc(cardName(d))}</b> passam para <b>${esc(cardName(cardById(S.mergeTo)))}</b> e este cartão deixa de existir. Se os dois tiverem fatura do mesmo mês, fica a do cartão que recebe. <div class="row" style="margin-top:8px"><button class="btn sm" type="button" data-act="mergecardok">Juntar</button><button class="btn ghost sm" type="button" data-act="cancelmerge">Voltar</button></div></div>` : `<div class="merge-row"><label class="fld" for="e-merge"><span>Esse cartão é o mesmo que outro? Juntar com:</span><select id="e-merge">${cards().filter((o) => o.id !== d.id).map((o) => `<option value="${esc(o.id)}">${esc(cardName(o))}</option>`).join('')}</select></label><button class="btn ghost sm" type="button" data-act="mergecard">Juntar cartões</button></div>`) : ''}
     ${d.id ? (S.confirm === 'delcard' ? `<span class="confirm">Apagar o cartão e as faturas dele? <button class="btn bad sm" type="button" data-act="delcard">Apagar</button></span>` : `<button class="link muted" type="button" data-act="askdelcard">Apagar cartão</button>`) : ''}</div></form>`;
   const billForm = (d) => `<form class="form" data-form="bill">
     ${field('e-nome', 'Nome', d.nome, 'placeholder="Ex.: Parcela da casa — Caixa" required')}
@@ -2750,6 +2756,27 @@ document.addEventListener('click', (ev) => {
     case 'newcard': S.edit = { kind: 'card', draft: { banco: 'itau', nome: '', final: '', fech: '', venc: '', limite: '' } }; S.confirm = null; break;
     case 'editcard': if (S.example) { toast('Esse cartão é só um exemplo. Adicione o seu.'); return; } { const c = cardById(b.dataset.id); S.edit = { kind: 'card', draft: { ...c, limite: c.limite ? String(c.limite).replace('.', ',') : '' } }; S.confirm = null; break; }
     case 'askdelcard': S.confirm = 'delcard'; break;
+    case 'mergecard': { const to = $('#e-merge')?.value; if (!to) return; S.mergeTo = to; S.confirm = 'mergecard'; break; }
+    case 'cancelmerge': S.confirm = null; S.mergeTo = null; break;
+    case 'mergecardok': {
+      const from = cardById(S.edit.draft.id), into = cardById(S.mergeTo);
+      if (!from || !into || from.id === into.id) { S.confirm = null; break; }
+      let movidas = 0, repetidas = 0;
+      for (const f of Object.values(D().faturas)) {
+        if (f.cardId !== from.id) continue;
+        if (fatOfCard(into.id).some((g) => g.venc.slice(0, 7) === f.venc.slice(0, 7))) { delete D().faturas[f.id]; if (!S.example) Store.removeFatura(f.id); repetidas++; continue; }
+        f.cardId = into.id; if (!S.example) Store.saveFatura(f); movidas++;
+      }
+      for (const k of Object.keys(cfg.paid || {})) { const m = k.match(/^c:([^:]+):(\d{4}-\d{2})$/); if (m && m[1] === from.id) { const nk = `c:${into.id}:${m[2]}`; if (!(nk in cfg.paid)) cfg.paid[nk] = cfg.paid[k]; delete cfg.paid[k]; } }
+      if (!into.ident && from.ident) into.ident = from.ident;
+      if (!into.final && from.final) into.final = from.final;
+      if (!into.venc && from.venc) into.venc = from.venc;
+      if (!into.fech && from.fech) into.fech = from.fech;
+      cfg.cards = cfg.cards.filter((c) => c.id !== from.id);
+      S.edit = null; S.confirm = null; S.mergeTo = null; Store.saveCfg();
+      toast(`Cartões juntos: ${movidas} fatura${movidas === 1 ? '' : 's'} movida${movidas === 1 ? '' : 's'}${repetidas ? `, ${repetidas} repetida${repetidas === 1 ? '' : 's'} descartada${repetidas === 1 ? '' : 's'}` : ''}.`);
+      break;
+    }
     case 'delcard': {
       const id = S.edit.draft.id;
       cfg.cards = cfg.cards.filter((c) => c.id !== id);
