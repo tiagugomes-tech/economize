@@ -641,6 +641,8 @@ const Parser = (() => {
       const right = its.filter((i) => i.x >= bestX).length;
       if (best <= its.length * 0.04 && left > its.length * 0.15 && right > its.length * 0.15) split = bestX;
     }
+    // Santander: o detalhamento tem duas colunas lado a lado (a da direita continua a da esquerda)
+    if (opts.cols && its.some((i) => /Detalhamento da Fatura/i.test(i.s))) split = width * 0.47;
     const cols = split == null ? [its] : [its.filter((i) => i.x < split), its.filter((i) => i.x >= split)];
     const out = [];
     for (const col of cols) {
@@ -714,6 +716,7 @@ const Parser = (() => {
       }
     }
     h.venc = m ? iso(m[1].match(DATE)) : null;
+    if (/santander/i.test(text)) { const sv = text.match(/Total a Pagar[\s\S]{0,300}?R\$\s*[\d.]+,\d{2}\s+(\d{2}\/\d{2}\/\d{4})/); if (sv) h.venc = iso(sv[1].match(DATE)); }
     m = find(/Fechamento:?\s*(\d{2}\/\d{2}\/\d{4})/i);
     h.proxFech = m ? iso(m[1].match(DATE)) : null;
     m = find(/(?:Emiss[aã]o|Postagem):?\s*(\d{2}\/\d{2}\/\d{4})/i);
@@ -733,7 +736,14 @@ const Parser = (() => {
       const doc = text.match(/CNPJ\s*:?\s*(\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2})/i);
       h.titular = tit;
       const nrm = (s) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
-      h.ident = doc ? 'CNPJ' + doc[1].replace(/\D/g, '') : tit ? nrm(tit) : null;
+      const docDig = doc ? doc[1].replace(/\D/g, '') : '';
+      h.ident = doc && docDig !== '18236120000158' ? 'CNPJ' + docDig : tit ? nrm(tit) : null;
+      // Nubank: o nome impresso logo acima de "FATURA dd MMM aaaa" (com o número da empresa na frente, quando é conta PJ) distingue pessoa física de empresa
+      const nh = text.match(/(\d{2}\.\d{3}\.\d{3}(?:\/\d{4}-\d{2})?)?\s*([A-ZÀ-Ý][A-ZÀ-Ý .'&-]{8,}?)\s+FATURA\s+\d{2}\s+[A-Z]{3}\s+\d{4}/);
+      if (nh) {
+        h.titular = ((nh[1] ? nh[1] + ' ' : '') + nh[2]).trim();
+        h.ident = (nh[1] ? nh[1].replace(/\D/g, '') + '|' : '') + nrm(nh[2]);
+      }
     }
     m = find(/Limite total de cr[ée]dito:?\s*(?:R\$\s*)?([\d.]+,\d{2})/i);
     if (!m) { const i = lines.findIndex((l) => /limite total de cr[ée]dito/i.test(l)); if (i >= 0 && lines[i + 1]) m = [0, lines[i + 1]]; }
@@ -867,6 +877,8 @@ const Parser = (() => {
     let sec = 'compra';
     const vy = +h.venc.slice(0, 4), vm = +h.venc.slice(5, 7);
     if (banco === 'bv') rows = rows.map(bvRow);
+    // Santander: tira o código de categoria no início da linha, os subtotais e a coluna em dólar
+    if (banco === 'santander') rows = rows.filter((l) => !/^valor total\b/i.test(l)).map((l) => l.replace(/^[@]?\s*\d\s+(?=\d{2}\/\d{2}\s)/, '').replace(/\s(-?\d{1,3}(?:\.\d{3})*,\d{2})\s+-?\d{1,3}(?:\.\d{3})*,\d{2}$/, (m, a) => (/^\d{2}\/\d{2}\s/.test(l.replace(/^[@]?\s*\d\s+(?=\d{2}\/\d{2}\s)/, '')) ? ' ' + a : m)));
     // XP: colunas "R$  US$"; a coluna em dólar vem depois do valor em reais. Linhas com data completa (dd/mm/aaaa) são cabeçalho, não lançamento
     if (banco === 'xp') rows = rows.filter((l) => !/^\d{2}\/\d{2}\/\d{4}\b/.test(l)).map((l) => (/^\d{2}\/\d{2}\/\d{2}\s/.test(l) ? l.replace(/\s(-?\d{1,3}(?:\.\d{3})*,\d{2})\s+-?\d{1,3}(?:\.\d{3})*,\d{2}$/, ' $1') : l));
     for (const l of rows) {
@@ -954,6 +966,9 @@ const Parser = (() => {
           else break;
         }
       }
+    } else if (banco === 'santander') {
+      const t = find(/^\(=\)\s*Saldo desta fatura/i);
+      if (t != null) { h.total = t; h.totalLanc = t; }
     } else if (banco === 'xp') {
       const d = find(/^Despesas at[ée] a emiss[ãa]o/), t = find(/^Valor total devido/), lim = find(/^Limite total de cr[ée]dito/);
       if (d != null) h.totalLanc = d;
@@ -1018,7 +1033,7 @@ const Parser = (() => {
     const lines = pages.flatMap((p) => pageLines(p.items, p.width));
     const text = lines.join('\n');
     const banco = detectBank(text);
-    const rows = banco === 'itau' ? null : pages.flatMap((p) => pageLines(p.items, p.width, { rows: true, gap: banco === 'bv' }));
+    const rows = banco === 'itau' ? null : pages.flatMap((p) => pageLines(p.items, p.width, { rows: true, gap: banco === 'bv', cols: banco === 'santander' }));
     const h = header(lines, text);
     if (!h.venc) {
       const m = (rows || lines).join('\n').match(/(?:vencimento:?|FATURA)\s*(\d{2}) (JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ) (\d{4})/i);
@@ -1040,7 +1055,7 @@ const Parser = (() => {
     let futuroConferido = null;
     if (h.totalFuturo != null) futuroConferido = Math.abs(somaFut - h.totalFuturo) < (banco === 'nubank' || banco === 'porto' ? 1 : 0.02);
     return {
-      ok: r.tx.length > 0, banco, generico: !['itau', 'nubank', 'renner', 'bv', 'xp'].includes(banco), ...h, tx: r.tx, pags: r.pags, futuro: r.futuro || [], futuroK, soma, conferido, futuroConferido,
+      ok: r.tx.length > 0, banco, generico: !['itau', 'nubank', 'renner', 'bv', 'xp', 'santander'].includes(banco), ...h, tx: r.tx, pags: r.pags, futuro: r.futuro || [], futuroK, soma, conferido, futuroConferido,
       erro: r.tx.length ? null : 'Li o PDF mas não encontrei lançamentos no formato esperado.', lines,
     };
   }
@@ -1568,8 +1583,11 @@ async function runImport(password) {
   leaveExample();
   decideImport(r, pending ? pending.name : '');
 }
+const sugNome = (r) => (r.titular ? (/^\d{2}\.\d{3}\.\d{3}/.test(r.titular) ? `${BANCOS[r.banco] || 'Cartão'} Empresas` : `${BANCOS[r.banco] || 'Cartão'} · ${r.titular.toLowerCase().replace(/(^|\s)\S/g, (x) => x.toUpperCase()).slice(0, 24)}`) : '');
 function decideImport(r, name) {
   const cfg = S.data.cfg;
+  // versões antigas guardavam o CNPJ do próprio Nubank como identificação: vale para todos os cartões, então não identifica ninguém
+  for (const c of cfg.cards) if (c.ident === 'CNPJ18236120000158') delete c.ident;
   const cands = cfg.cards.filter((c) => c.banco === r.banco && (r.final ? c.final === r.final : !c.final));
   const jaTem = (c) => S.data.faturas[faturaId(c, r)];
   const igual = (f) => f && Math.abs((f.total ?? 0) - (r.total ?? 0)) < 0.005 && f.tx.length === r.tx.length;
@@ -1579,7 +1597,7 @@ function decideImport(r, name) {
     if (mesmo.length === 1) { placeFatura(r, name, mesmo[0], false); return; }
     if (cands.length && cands.every((c) => c.ident && c.ident !== r.ident)) {
       // titular diferente do(s) cartão(ões) guardado(s): pode ser outra pessoa/empresa ou só a leitura do nome que mudou. Pergunta.
-      S.choose = { r, name, ids: cands.map((c) => c.id), nome: r.titular ? `${BANCOS[r.banco] || 'Cartão'} · ${r.titular.toLowerCase().replace(/(^|\s)\S/g, (x) => x.toUpperCase()).slice(0, 24)}` : '' };
+      S.choose = { r, name, ids: cands.map((c) => c.id), nome: sugNome(r) };
       pending = null;
       render();
       return;
@@ -1589,7 +1607,7 @@ function decideImport(r, name) {
   const semTitular = r.ident && !r.final && cands.some((c) => !c.ident && fatOfCard(c.id).length);
   const duvida = !r.final && (cands.length > 1 || semTitular || (cands.length === 1 && jaTem(cands[0]) && !igual(jaTem(cands[0]))));
   if (duvida) {
-    S.choose = { r, name, ids: cands.map((c) => c.id), nome: r.titular ? `${BANCOS[r.banco] || 'Cartão'} · ${r.titular.toLowerCase().replace(/(^|\s)\S/g, (x) => x.toUpperCase()).slice(0, 24)}` : '' };
+    S.choose = { r, name, ids: cands.map((c) => c.id), nome: sugNome(r) };
     pending = null;
     render();
     return;
