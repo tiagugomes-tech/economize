@@ -671,6 +671,7 @@ const Parser = (() => {
   function detectBank(text) {
     const t = strip(text).toLowerCase();
     if (/portoseg|cartao porto|cartaoportoseguro|porto seguro cia|whatsapp oficial da porto/.test(t)) return 'porto';
+    if (/c6 bank|banco c6|c6 platinum|c6 black|c6 carbon|c6 mastercard|c6 visa/.test(t)) return 'c6';
     if (/realize sociedade de credito|cartoes renner|lojas renner|meu cartao/.test(t)) return 'renner';
     if (/nubank|nu pagamentos/.test(t)) return 'nubank';
     if (/banco xp|cartao xp|xp visa|xp investimentos/.test(t)) return 'xp';
@@ -902,7 +903,7 @@ const Parser = (() => {
       if (banco === 'porto') { /* "BZ" é só o código do país */ }
       if (sec === 'fim') continue;
       if (sec === 'futuro') { futuro.push({ desc, parc, v: Math.abs(rv.v) }); continue; }
-      if (/^pagamento|pagamento (de )?fatura|pgto/i.test(desc) && (rv.v < 0 || /pagamento em/i.test(desc))) { pags.push({ d, desc, v: -Math.abs(rv.v) }); continue; }
+      if (/^pagamento|pagamento (de )?fatura|pgto/i.test(desc) && (rv.v < 0 || /pagamento em/i.test(desc)) || (banco === 'c6' && /inclus[aã]o de pagamento/i.test(desc))) { pags.push({ d, desc, v: -Math.abs(rv.v) }); continue; }
       const tipo = sec === 'fin' || /anuidade|iof|juros|tarifa|encargo|multa/i.test(desc) ? 'serv' : 'compra';
       tx.push({ d, desc, parc, v: rv.v, tipo, hint: '' });
     }
@@ -966,6 +967,14 @@ const Parser = (() => {
           else break;
         }
       }
+    } else if (banco === 'c6') {
+      const t = find(/^Total a pagar\b/i);
+      if (t != null) { h.total = t; h.totalLanc = t; }
+      // o cartão da fatura (final) vem no recibo do boleto; o titular, no campo PAGADOR
+      const fm = rows.map((l) => l.match(/^(\d{4})\s+\d{6,}\s+\d{2}\/\d{2}\/\d{4}/)).find(Boolean);
+      if (fm) h.final = fm[1];
+      const pm = rows.map((l) => l.match(/PAGADOR:\s*([A-ZÀ-Ý][A-ZÀ-Ý .'&-]{5,}?)(?=\s*\(|\s{2,}|$)/)).find(Boolean);
+      if (pm) { h.titular = pm[1].trim(); h.ident = pm[1].normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9 ]/g, '').replace(/\s+/g, ' ').trim(); }
     } else if (banco === 'santander') {
       const t = find(/^\(=\)\s*Saldo desta fatura/i);
       if (t != null) { h.total = t; h.totalLanc = t; }
@@ -1055,7 +1064,7 @@ const Parser = (() => {
     let futuroConferido = null;
     if (h.totalFuturo != null) futuroConferido = Math.abs(somaFut - h.totalFuturo) < (banco === 'nubank' || banco === 'porto' ? 1 : 0.02);
     return {
-      ok: r.tx.length > 0, banco, generico: !['itau', 'nubank', 'renner', 'bv', 'xp', 'santander'].includes(banco), ...h, tx: r.tx, pags: r.pags, futuro: r.futuro || [], futuroK, soma, conferido, futuroConferido,
+      ok: r.tx.length > 0, banco, generico: !['itau', 'nubank', 'renner', 'bv', 'xp', 'santander', 'c6'].includes(banco), ...h, tx: r.tx, pags: r.pags, futuro: r.futuro || [], futuroK, soma, conferido, futuroConferido,
       erro: r.tx.length ? null : 'Li o PDF mas não encontrei lançamentos no formato esperado.', lines,
     };
   }
@@ -1183,8 +1192,8 @@ const CATS = [
 ];
 const CAT = Object.fromEntries(CATS.map(([id, nome, cor]) => [id, { id, nome, cor }]));
 
-const SIGLA = { porto: 'PS', renner: 'Re', itau: 'itaú', xp: 'XP', santander: 'San', bb: 'BB', caixa: 'CX', nubank: 'Nu', inter: 'In', outro: '•' };
-const BANCOS = { porto: 'Porto', renner: 'Renner', itau: 'Itaú', xp: 'XP', santander: 'Santander', bb: 'Banco do Brasil', caixa: 'Caixa', nubank: 'Nubank', inter: 'Inter', outro: 'Outro' };
+const SIGLA = { porto: 'PS', renner: 'Re', itau: 'itaú', xp: 'XP', c6: 'C6', santander: 'San', bb: 'BB', caixa: 'CX', nubank: 'Nu', inter: 'In', outro: '•' };
+const BANCOS = { porto: 'Porto', renner: 'Renner', itau: 'Itaú', xp: 'XP', c6: 'C6 Bank', santander: 'Santander', bb: 'Banco do Brasil', caixa: 'Caixa', nubank: 'Nubank', inter: 'Inter', outro: 'Outro' };
 
 const KEYWORDS = [
   [/PICOL|UBER\s*\*?\s*EATS|IFOOD|IFD\*|RAPPI|AIQFOME|ZE DELIVERY|RESTAURANTE|LANCH|PIZZA|BURGER|MC ?DONALD|BK |SUBWAY|PADARIA|PANIFIC|CAFE|SORVET|ACAI|CHURRASC|BAR |BOTECO|OUTBACK|COCO BAMBU|HABIB/, 'alimentacao'],
