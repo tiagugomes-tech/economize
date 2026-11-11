@@ -688,6 +688,8 @@ const Parser = (() => {
   function detectBank(text) {
     const t = strip(text).toLowerCase();
     if (/portoseg|cartao porto|cartaoportoseguro|porto seguro cia|whatsapp oficial da porto/.test(t)) return 'porto';
+    if (/documento auxiliar de nota fiscal de agua/.test(t)) return 'caern';
+    if (/documento auxiliar da nota fiscal de energia eletrica/.test(t)) return 'cosern';
     if (/carrefour/.test(t)) return 'carrefour';
     if (/picpay/.test(t)) return 'picpay';
     if (/c6 bank|banco c6|c6 platinum|c6 black|c6 carbon|c6 mastercard|c6 visa/.test(t)) return 'c6';
@@ -1094,10 +1096,31 @@ const Parser = (() => {
   }
 
   /* pages: array de { items, width } (saída do pdf.js) */
+  /* contas de consumo (água e luz): não são fatura de cartão, viram uma conta com valor do mês */
+  function parseConta(text, lines, banco) {
+    const num2 = (s) => Math.round(parseFloat(String(s).replace(/\./g, '').replace(',', '.')) * 100) / 100;
+    let nome, total = null, venc = null, ref = null, chave = null;
+    if (banco === 'caern') {
+      nome = 'CAERN (água)';
+      let m = text.match(/TOTAL A PAGAR\s+([\d.]+,\d{2})/i); if (m) total = num2(m[1]);
+      m = text.match(/VENCIMENTO\s+(\d{2})\/(\d{2})\/(\d{4})/i); if (m) venc = `${m[3]}-${m[2]}-${m[1]}`;
+      m = text.match(/M[ÊE]S\s+([A-Z]{3})\/(\d{2})/); if (m && MESN[m[1]]) ref = `20${m[2]}-${pad2(MESN[m[1]])}`;
+      m = text.match(/MATR[ÍI]CULA\s+([\d.]+)/i); if (m) chave = m[1];
+    } else {
+      nome = 'COSERN (energia)';
+      const m = text.match(/(\d{2})\/(\d{4})\s+([\d.]+,\d{2})\s+(\d{2})\/(\d{2})\/(\d{4})/);
+      if (m) { ref = `${m[2]}-${m[1]}`; total = num2(m[3]); venc = `${m[6]}-${m[5]}-${m[4]}`; }
+      const k = text.match(/C[ÓO]DIGO DO CLIENTE[\s\S]{0,60}?(\d{9,12})/i) || text.match(/\b(7\d{9})\b/); if (k) chave = k[1];
+    }
+    if (!venc || total == null) return { ok: false, banco, erro: 'Reconheci a conta de ' + (banco === 'caern' ? 'água' : 'luz') + ', mas não achei o vencimento ou o valor.', lines };
+    return { ok: true, conta: true, banco, nome, venc, total, ref, chave: chave || banco, tx: [], pags: [], futuro: [], lines };
+  }
+
   function parse(pages) {
     const lines = pages.flatMap((p) => pageLines(p.items, p.width));
     const text = lines.join('\n');
     const banco = detectBank(text);
+    if (banco === 'caern' || banco === 'cosern') return parseConta(text, lines, banco);
     const rows = banco === 'itau' ? null : pages.flatMap((p) => pageLines(p.items, p.width, { rows: true, gap: banco === 'bv', cols: banco === 'santander' }));
     const h = header(lines, text);
     if (!h.venc) {
@@ -1354,6 +1377,9 @@ const cardName = (c) => (c ? c.nome || `${BANCOS[c.banco] || 'Cartão'}${c.final
 const billActive = (b, M) => (!b.inicio || b.inicio <= M) && (!b.fim || M <= b.fim);
 // conta fixa paga no cartão: se a fatura desse cartão já está no mês, a conta já está dentro dela (não conta de novo)
 const billViaCard = (b, M) => !!b.cartao && fatOfCard(b.cartao).some((f) => f.venc.slice(0, 7) === M);
+// conta de valor variável (água, luz): usa o valor lido da conta daquele mês; sem conta lida, estima pelo último valor
+const billVal = (b, M) => (b.valores && b.valores[M] ? +b.valores[M].valor || 0 : +b.valor || 0);
+const billDate = (b, M) => (b.valores && b.valores[M] && b.valores[M].venc) || dayIn(M, b.dia);
 const billCounts = (b, M) => billActive(b, M) && !billViaCard(b, M);
 const isPaid = (k) => !!D().cfg.paid[k];
 
@@ -1395,7 +1421,7 @@ function eventsOf(M) {
     else { const p = projection(c.id, M); if (p && p.total > 0) { valor = p.total; est = true; } }
     ev.push({ key: `c:${c.id}:${M}`, kind: 'cartao', id: c.id, nome: `Fatura ${cardName(c)}`, banco: c.banco, date: date2, valor, est, zerada, fid, auto });
   }
-  for (const b of bills()) if (billCounts(b, M)) ev.push({ key: `b:${b.id}:${M}`, kind: 'conta', id: b.id, nome: b.nome, cat: b.cat, date: dayIn(M, b.dia), valor: +b.valor || 0 });
+  for (const b of bills()) if (billCounts(b, M)) ev.push({ key: `b:${b.id}:${M}`, kind: 'conta', id: b.id, nome: b.nome, cat: b.cat, date: billDate(b, M), valor: billVal(b, M), est: !!(b.variavel && !(b.valores && b.valores[M])) });
   for (const e of ev) {
     e.pago = isPaid(e.key) || e.zerada || !!e.auto;
     e.pagoEm = typeof D().cfg.paid[e.key] === 'string' ? D().cfg.paid[e.key] : e.auto || null;
@@ -1412,7 +1438,7 @@ function spendingOf(M) {
     for (const t of f.tx) tx.push({ ...t, ...categorize(t), fat: f });
     if (f.encargos > 0) tx.push({ d: f.venc, desc: 'Encargos (multa, mora, rotativo, IOF)', v: f.encargos, cat: 'tarifas', src: 'banco', fat: f, encargo: true });
   }
-  const bl = bills().filter((b) => billCounts(b, M)).map((b) => ({ desc: b.nome, v: +b.valor || 0, cat: b.cat || 'outros', conta: true }));
+  const bl = bills().filter((b) => billCounts(b, M)).map((b) => ({ desc: b.nome, v: billVal(b, M), cat: b.cat || 'outros', conta: true }));
   const totTx = r2(tx.reduce((s, t) => s + t.v, 0));
   const totBl = r2(bl.reduce((s, t) => s + t.v, 0));
   const byCat = {};
@@ -1429,7 +1455,7 @@ function committed(M) {
     if (f) parc += f.tx.filter((t) => t.parc || /\bPA\/\d{2}\b/.test(t.desc)).reduce((s, t) => s + t.v, 0);
     else { const p = projection(c.id, M); if (p) parc += p.total; }
   }
-  const fix = bills().filter((b) => billCounts(b, M)).reduce((s, b) => s + (+b.valor || 0), 0);
+  const fix = bills().filter((b) => billCounts(b, M)).reduce((s, b) => s + billVal(b, M), 0);
   return { parc: r2(parc), fix: r2(fix) };
 }
 
@@ -1657,7 +1683,23 @@ async function runImport(password) {
   decideImport(r, pending ? pending.name : '');
 }
 const sugNome = (r) => (r.titular ? (/^\d{2}\.\d{3}\.\d{3}/.test(r.titular) ? `${BANCOS[r.banco] || 'Cartão'} Empresas` : `${BANCOS[r.banco] || 'Cartão'} · ${r.titular.toLowerCase().replace(/(^|\s)\S/g, (x) => x.toUpperCase()).slice(0, 24)}`) : '');
+function importConta(r) {
+  const refM = r.venc.slice(0, 7);
+  let b = bills().find((x) => x.fonte === r.banco && x.chave === r.chave);
+  const novo = !b;
+  if (!b) { b = { id: 'b' + uid(), nome: r.nome, valor: r.total, dia: +r.venc.slice(8), cat: 'contas', cartao: '', inicio: refM, fim: '', variavel: true, fonte: r.banco, chave: r.chave, valores: {} }; bills().push(b); }
+  b.valores = b.valores || {};
+  b.valores[refM] = { valor: r.total, venc: r.venc };
+  const ult = Object.keys(b.valores).sort().pop();
+  b.valor = b.valores[ult].valor; b.dia = +b.valores[ult].venc.slice(8);
+  if (!b.inicio || b.inicio > refM) b.inicio = refM;
+  Store.saveCfg();
+  S.month = refM; S.view = 'calendario';
+  toast(`${novo ? 'Conta criada: ' : 'Conta atualizada: '}${b.nome}, vence em ${dBR(r.venc)}, ${brl(r.total)}. Veja no calendário e marque "Paguei" quando quitar.`);
+  render();
+}
 function decideImport(r, name) {
+  if (r.conta) { importConta(r); return; }
   const cfg = S.data.cfg;
   // versões antigas guardavam o CNPJ do próprio Nubank como identificação: vale para todos os cartões, então não identifica ninguém
   for (const c of cfg.cards) if (c.ident === 'CNPJ18236120000158') delete c.ident;
@@ -2239,7 +2281,7 @@ function importBox() {
     <label for="pdffile" class="drop">
       <svg viewBox="0 0 24 24" class="drop-ic"><path d="M12 15V3M7 8l5-5 5 5"/><path d="M4 15v4a2 2 0 002 2h12a2 2 0 002-2v-4"/></svg>
       <span class="drop-t">${S.importing ? 'Lendo a fatura…' : 'Importar fatura (PDF ou CSV)'}</span>
-      <span class="drop-s">Toque para escolher ou arraste o arquivo aqui. Leitura completa de Itaú, Nubank, Renner, Porto, BV, XP e Nubank (CSV). Santander, Banco do Brasil e outros usam a leitura genérica.</span>
+      <span class="drop-s">Toque para escolher ou arraste o arquivo aqui. Também lê a conta de água (CAERN) e de luz (COSERN). Leitura completa de Itaú, Nubank, Renner, Porto, BV, XP e Nubank (CSV). Santander, Banco do Brasil e outros usam a leitura genérica.</span>
     </label>
     ${S.pwd ? `<form class="pwd" data-form="pwd">
       <label for="pdfpwd">Este PDF tem senha${S.pwd.wrong ? ' — a senha não abriu, tente de novo' : ''}. Bancos costumam usar os primeiros dígitos do CPF.</label>
@@ -2392,7 +2434,7 @@ function viewCadastro() {
       ${bills().length ? `<ul class="items">${bills().map((b) => E?.kind === 'bill' && E.draft.id === b.id ? `<li class="editing">${billForm(E.draft)}</li>` : `
         <li><button class="item" data-act="editbill" data-id="${esc(b.id)}">
           <span class="cat-dot" style="background:${CAT[b.cat]?.cor || '#888'}"></span>
-          <span class="item-n">${esc(b.nome)}<small>Todo dia ${b.dia} · ${esc(CAT[b.cat]?.nome || '')}${b.cartao && cardById(b.cartao) ? ` · no cartão ${esc(cardName(cardById(b.cartao)))}` : ''}${b.fim ? ` · até ${mesCurto(b.fim)}` : ''}</small></span>
+          <span class="item-n">${esc(b.nome)}<small>Todo dia ${b.dia} · ${esc(CAT[b.cat]?.nome || '')}${b.variavel ? ' · valor varia, lido da conta' : ''}${b.cartao && cardById(b.cartao) ? ` · no cartão ${esc(cardName(cardById(b.cartao)))}` : ''}${b.fim ? ` · até ${mesCurto(b.fim)}` : ''}</small></span>
           <span class="money item-v">${brl(+b.valor)}</span>
         </button></li>`).join('')}</ul>` : ''}
     </div>
