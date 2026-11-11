@@ -671,6 +671,8 @@ const Parser = (() => {
   function detectBank(text) {
     const t = strip(text).toLowerCase();
     if (/portoseg|cartao porto|cartaoportoseguro|porto seguro cia|whatsapp oficial da porto/.test(t)) return 'porto';
+    if (/carrefour/.test(t)) return 'carrefour';
+    if (/picpay/.test(t)) return 'picpay';
     if (/c6 bank|banco c6|c6 platinum|c6 black|c6 carbon|c6 mastercard|c6 visa/.test(t)) return 'c6';
     if (/realize sociedade de credito|cartoes renner|lojas renner|meu cartao/.test(t)) return 'renner';
     if (/nubank|nu pagamentos/.test(t)) return 'nubank';
@@ -880,6 +882,10 @@ const Parser = (() => {
     if (banco === 'bv') rows = rows.map(bvRow);
     // Santander: tira o código de categoria no início da linha, os subtotais e a coluna em dólar
     if (banco === 'santander') rows = rows.filter((l) => !/^valor total\b/i.test(l)).map((l) => l.replace(/^[@]?\s*\d\s+(?=\d{2}\/\d{2}\s)/, '').replace(/\s(-?\d{1,3}(?:\.\d{3})*,\d{2})\s+-?\d{1,3}(?:\.\d{3})*,\d{2}$/, (m, a) => (/^\d{2}\/\d{2}\s/.test(l.replace(/^[@]?\s*\d\s+(?=\d{2}\/\d{2}\s)/, '')) ? ' ' + a : m)));
+    // Carrefour: valor negativo vem com o sinal depois (136,32-)
+    if (banco === 'carrefour') rows = rows.map((l) => l.replace(/\s(\d{1,3}(?:\.\d{3})*,\d{2})-$/, ' -$1'));
+    // Banco do Brasil: tira o código do país (BR) que vem antes do valor
+    if (banco === 'bb') rows = rows.filter((l) => !/^\d{2}\/\d{2}\/\d{4}\b/.test(l)).map((l) => (/^\d{2}\/\d{2}\s/.test(l) ? l.replace(/\s+[A-Z]{2}\s+(R\$\s*-?[\d.]+,\d{2})$/, ' $1') : l));
     // XP: colunas "R$  US$"; a coluna em dólar vem depois do valor em reais. Linhas com data completa (dd/mm/aaaa) são cabeçalho, não lançamento
     if (banco === 'xp') rows = rows.filter((l) => !/^\d{2}\/\d{2}\/\d{4}\b/.test(l)).map((l) => (/^\d{2}\/\d{2}\/\d{2}\s/.test(l) ? l.replace(/\s(-?\d{1,3}(?:\.\d{3})*,\d{2})\s+-?\d{1,3}(?:\.\d{3})*,\d{2}$/, ' $1') : l));
     for (const l of rows) {
@@ -967,6 +973,39 @@ const Parser = (() => {
           else break;
         }
       }
+    } else if (banco === 'picpay') {
+      const all = rows.join('\n');
+      let m = all.match(/Total geral dos lan[çc]amentos\s+([\d.]+,\d{2})/i); if (m) h.totalLanc = num(m[1]);
+      m = all.match(/Limite total[ \t]+([\d.]+,\d{2})/i); if (m) h.limite = num(m[1]);
+      m = all.match(/Valor consolidado das parcelas futuras\s+R\$\s*([\d.]+,\d{2})/i); if (m) h.totalFuturo = num(m[1]);
+      const tm = rows.map((l) => l.match(/^([A-ZÀ-Ý][A-ZÀ-Ý .'-]{8,}?),?$/)).find(Boolean);
+      if (tm) {
+        h.titular = tm[1].trim();
+        h.ident = h.titular.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
+        // cartão do titular: bloco "NOME ... / Picpay Card final NNNN" que começa pelo primeiro nome dele
+        const first = h.titular.split(' ')[0];
+        for (let i = 0; i < rows.length - 1; i++) {
+          if (new RegExp('^' + first + '\\b').test(rows[i]) && rows[i] !== tm[0]) { const fm = rows[i + 1].match(/final\s+(\d{4})/i); if (fm) { h.final = fm[1]; break; } }
+        }
+      }
+    } else if (banco === 'carrefour') {
+      const all = rows.join('\n');
+      let m = all.match(/TOTAL DA FATURA ATUAL:?\s*R\$\s*([\d.]+,\d{2})/i);
+      if (m) { h.total = num(m[1]); h.totalLanc = h.total; }
+      m = all.match(/Limite de cr[ée]dito:[ \t]*R\$[ \t]*([\d.]+,\d{2})/i); if (m) h.limite = num(m[1]);
+      m = all.match(/CART[ÃA]O:\s*\d{6}\*+(\d{4})/i); if (m) h.final = m[1];
+      m = all.match(/TITULAR:\s*([A-ZÀ-Ý][A-ZÀ-Ý .'&-]{4,}?)(?:\s{2,}|\n|$)/);
+      if (m) { h.titular = m[1].trim(); h.ident = m[1].normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9 ]/g, '').replace(/\s+/g, ' ').trim(); }
+      const a1 = all.match(/Total de parcelas a pagar:?\s*R\$\s*([\d.]+,\d{2})/i), a2 = all.match(/Total de parcelas a vencer da anuidade:?\s*R\$\s*([\d.]+,\d{2})/i);
+      if (a1) h.totalFuturo = Math.round((num(a1[1]) + (a2 ? num(a2[1]) : 0)) * 100) / 100;
+      m = all.match(/FECHAMENTO DA PR[ÓO]XIMA FATURA\s*(\d{2})\/(\d{2})\/(\d{4})/i); if (m) h.proxFech = `${m[3]}-${m[2]}-${m[1]}`;
+    } else if (banco === 'bb') {
+      const t = find(/^Total da Fatura\s+R\$/i);
+      if (t != null) { h.total = t; h.totalLanc = t; }
+      const f = find(/^futuras\s+R\$/i); if (f != null) h.totalFuturo = f;
+      const lr = rows.map((l) => l.match(/^Limite [uú]nico\s+R\$\s*([\d.]+,\d{2})/i)).find(Boolean); if (lr) h.limite = num(lr[1]);
+      const pm = rows.map((l) => l.match(/^([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ .'&-]{4,60}?)\s*\(Cart[ãa]o\s*\d{4}\)/)).find(Boolean);
+      if (pm) { h.titular = pm[1].trim(); h.ident = pm[1].normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9 ]/g, '').replace(/\s+/g, ' ').trim(); }
     } else if (banco === 'c6') {
       const t = find(/^Total a pagar\b/i);
       if (t != null) { h.total = t; h.totalLanc = t; }
@@ -1048,6 +1087,7 @@ const Parser = (() => {
       const m = (rows || lines).join('\n').match(/(?:vencimento:?|FATURA)\s*(\d{2}) (JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ) (\d{4})/i);
       if (m) h.venc = `${m[3]}-${pad2(MESN[m[2].toUpperCase()])}-${m[1]}`;
     }
+    if (!h.venc && banco === 'bb') { const m = text.match(/Vencimento[\s\S]{0,120}?(\d{2})\/(\d{2})\/(\d{4})/); if (m) h.venc = `${m[3]}-${m[2]}-${m[1]}`; }
     if (h.venc && rows) rowTotals(rows, h, banco);
     if (!h.venc) {
       return { ok: false, banco, erro: 'Não achei a data de vencimento. Esse PDF é mesmo uma fatura de cartão?', lines };
@@ -1062,9 +1102,9 @@ const Parser = (() => {
     const futuro = projectFuture({ tx: r.tx, futuro: r.futuro, futuroK });
     const somaFut = Math.round(futuro.reduce((s, f) => s + f.v, 0) * 100) / 100;
     let futuroConferido = null;
-    if (h.totalFuturo != null) futuroConferido = Math.abs(somaFut - h.totalFuturo) < (banco === 'nubank' || banco === 'porto' ? 1 : 0.02);
+    if (h.totalFuturo != null) futuroConferido = Math.abs(somaFut - h.totalFuturo) < (banco === 'nubank' || banco === 'porto' || banco === 'bb' || banco === 'carrefour' ? 1 : 0.02);
     return {
-      ok: r.tx.length > 0, banco, generico: !['itau', 'nubank', 'renner', 'bv', 'xp', 'santander', 'c6'].includes(banco), ...h, tx: r.tx, pags: r.pags, futuro: r.futuro || [], futuroK, soma, conferido, futuroConferido,
+      ok: r.tx.length > 0, banco, generico: !['itau', 'nubank', 'renner', 'bv', 'xp', 'santander', 'c6', 'bb', 'carrefour', 'picpay'].includes(banco), ...h, tx: r.tx, pags: r.pags, futuro: r.futuro || [], futuroK, soma, conferido, futuroConferido,
       erro: r.tx.length ? null : 'Li o PDF mas não encontrei lançamentos no formato esperado.', lines,
     };
   }
@@ -1188,12 +1228,14 @@ const CATS = [
   ['pix', 'Pix e transferências', '#2C7FB0'],
   ['tarifas', 'Tarifas e juros', '#C2452D'],
   ['viagem', 'Viagem', '#3BA3B8'],
+  ['trabalho', 'Trabalho / Empresa', '#46607A'],
+  ['emprestimo', 'Empréstimo', '#9A4D6B'],
   ['outros', 'Outros', '#8A938F'],
 ];
 const CAT = Object.fromEntries(CATS.map(([id, nome, cor]) => [id, { id, nome, cor }]));
 
-const SIGLA = { porto: 'PS', renner: 'Re', itau: 'itaú', xp: 'XP', c6: 'C6', santander: 'San', bb: 'BB', caixa: 'CX', nubank: 'Nu', inter: 'In', outro: '•' };
-const BANCOS = { porto: 'Porto', renner: 'Renner', itau: 'Itaú', xp: 'XP', c6: 'C6 Bank', santander: 'Santander', bb: 'Banco do Brasil', caixa: 'Caixa', nubank: 'Nubank', inter: 'Inter', outro: 'Outro' };
+const SIGLA = { porto: 'PS', renner: 'Re', itau: 'itaú', xp: 'XP', c6: 'C6', carrefour: 'Cf', picpay: 'PP', santander: 'San', bb: 'BB', caixa: 'CX', nubank: 'Nu', inter: 'In', outro: '•' };
+const BANCOS = { porto: 'Porto', renner: 'Renner', itau: 'Itaú', xp: 'XP', c6: 'C6 Bank', carrefour: 'Carrefour', picpay: 'PicPay', santander: 'Santander', bb: 'Banco do Brasil', caixa: 'Caixa', nubank: 'Nubank', inter: 'Inter', outro: 'Outro' };
 
 const KEYWORDS = [
   [/PICOL|UBER\s*\*?\s*EATS|IFOOD|IFD\*|RAPPI|AIQFOME|ZE DELIVERY|RESTAURANTE|LANCH|PIZZA|BURGER|MC ?DONALD|BK |SUBWAY|PADARIA|PANIFIC|CAFE|SORVET|ACAI|CHURRASC|BAR |BOTECO|OUTBACK|COCO BAMBU|HABIB/, 'alimentacao'],
@@ -1207,6 +1249,8 @@ const KEYWORDS = [
   [/MERCADO ?LIVRE|MERCADOLIVRE|SHOPEE|SHEIN|ALIEXPRESS|MAGALU|MAGAZINE LUIZA|AMAZON|AMERICANAS|CASAS BAHIA|RENNER|RIACHUELO|C ?& ?A|CENTAURO|NETSHOES|ZARA|HAVAN|LEROY|KABUM|DECATHLON|BOTICARIO|NATURA/, 'compras'],
   [/HOTEL|POUSADA|AIRBNB|BOOKING|DECOLAR|LATAM|GOL LINHAS|AZUL LINHAS|VOEAZUL|RODOVIARIA|123MILHAS|MAXMILHAS/, 'viagem'],
   [/^PIX\b|TRANSFER|TED |DOC /, 'pix'],
+  [/EMPRESTIMO|CONSIGNAD|CREDITO PESSOAL|CDC |FINANCIAMENTO PESSOAL/, 'emprestimo'],
+  [/SEBRAE|CONTABIL|CONTADOR|DAS MEI|SIMPLES NACIONAL/, 'trabalho'],
   [/ANUIDADE|MENSALIDADE - PLANO|IOF|JUROS|TARIFA|ENCARGO|MULTA|SEGURO CARTAO|AVALIACAO EMERG/, 'tarifas'],
   [/ALUGUEL|IMOBILI|FINANCIAMENTO|HABITAC|MATERIAL DE CONST|CONSTRU|HOME CENTER/, 'moradia'],
 ];
@@ -1291,6 +1335,9 @@ const fatOfCard = (cid) => allFat().filter((f) => f.cardId === cid);
 const cardById = (id) => cards().find((c) => c.id === id);
 const cardName = (c) => (c ? c.nome || `${BANCOS[c.banco] || 'Cartão'}${c.final ? ' final ' + c.final : ''}` : 'Cartão');
 const billActive = (b, M) => (!b.inicio || b.inicio <= M) && (!b.fim || M <= b.fim);
+// conta fixa paga no cartão: se a fatura desse cartão já está no mês, a conta já está dentro dela (não conta de novo)
+const billViaCard = (b, M) => !!b.cartao && fatOfCard(b.cartao).some((f) => f.venc.slice(0, 7) === M);
+const billCounts = (b, M) => billActive(b, M) && !billViaCard(b, M);
 const isPaid = (k) => !!D().cfg.paid[k];
 
 function projection(cid, M) {
@@ -1331,7 +1378,7 @@ function eventsOf(M) {
     else { const p = projection(c.id, M); if (p && p.total > 0) { valor = p.total; est = true; } }
     ev.push({ key: `c:${c.id}:${M}`, kind: 'cartao', id: c.id, nome: `Fatura ${cardName(c)}`, banco: c.banco, date: date2, valor, est, zerada, fid, auto });
   }
-  for (const b of bills()) if (billActive(b, M)) ev.push({ key: `b:${b.id}:${M}`, kind: 'conta', id: b.id, nome: b.nome, cat: b.cat, date: dayIn(M, b.dia), valor: +b.valor || 0 });
+  for (const b of bills()) if (billCounts(b, M)) ev.push({ key: `b:${b.id}:${M}`, kind: 'conta', id: b.id, nome: b.nome, cat: b.cat, date: dayIn(M, b.dia), valor: +b.valor || 0 });
   for (const e of ev) {
     e.pago = isPaid(e.key) || e.zerada || !!e.auto;
     e.pagoEm = typeof D().cfg.paid[e.key] === 'string' ? D().cfg.paid[e.key] : e.auto || null;
@@ -1348,7 +1395,7 @@ function spendingOf(M) {
     for (const t of f.tx) tx.push({ ...t, ...categorize(t), fat: f });
     if (f.encargos > 0) tx.push({ d: f.venc, desc: 'Encargos (multa, mora, rotativo, IOF)', v: f.encargos, cat: 'tarifas', src: 'banco', fat: f, encargo: true });
   }
-  const bl = bills().filter((b) => billActive(b, M)).map((b) => ({ desc: b.nome, v: +b.valor || 0, cat: b.cat || 'outros', conta: true }));
+  const bl = bills().filter((b) => billCounts(b, M)).map((b) => ({ desc: b.nome, v: +b.valor || 0, cat: b.cat || 'outros', conta: true }));
   const totTx = r2(tx.reduce((s, t) => s + t.v, 0));
   const totBl = r2(bl.reduce((s, t) => s + t.v, 0));
   const byCat = {};
@@ -1365,7 +1412,7 @@ function committed(M) {
     if (f) parc += f.tx.filter((t) => t.parc || /\bPA\/\d{2}\b/.test(t.desc)).reduce((s, t) => s + t.v, 0);
     else { const p = projection(c.id, M); if (p) parc += p.total; }
   }
-  const fix = bills().filter((b) => billActive(b, M)).reduce((s, b) => s + (+b.valor || 0), 0);
+  const fix = bills().filter((b) => billCounts(b, M)).reduce((s, b) => s + (+b.valor || 0), 0);
   return { parc: r2(parc), fix: r2(fix) };
 }
 
@@ -2311,6 +2358,7 @@ function viewCadastro() {
     ${field('e-valor', 'Valor (R$)', d.valor, 'inputmode="decimal" placeholder="0,00" required')}
     ${field('e-dia', 'Dia do vencimento', d.dia, 'type="number" min="1" max="31" inputmode="numeric" required')}
     <label class="fld" for="e-cat"><span>Categoria</span><select id="e-cat" data-f="cat">${CATS.map(([id, n]) => `<option value="${id}" ${d.cat === id ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+    <label class="fld" for="e-cartao"><span>Paga no cartão (opcional)</span><select id="e-cartao" data-f="cartao"><option value="">Não, é boleto ou débito</option>${cards().map((c) => `<option value="${esc(c.id)}" ${d.cartao === c.id ? 'selected' : ''}>${esc(cardName(c))}</option>`).join('')}</select></label>
     ${field('e-inicio', 'Começa em (opcional)', d.inicio, 'type="month"')}
     ${field('e-fim', 'Termina em (opcional)', d.fim, 'type="month"')}
     <div class="form-acts"><button class="btn" type="submit">Salvar conta</button><button class="btn ghost" type="button" data-act="cancel">Cancelar</button>
@@ -2336,7 +2384,7 @@ function viewCadastro() {
       ${bills().length ? `<ul class="items">${bills().map((b) => E?.kind === 'bill' && E.draft.id === b.id ? `<li class="editing">${billForm(E.draft)}</li>` : `
         <li><button class="item" data-act="editbill" data-id="${esc(b.id)}">
           <span class="cat-dot" style="background:${CAT[b.cat]?.cor || '#888'}"></span>
-          <span class="item-n">${esc(b.nome)}<small>Todo dia ${b.dia} · ${esc(CAT[b.cat]?.nome || '')}${b.fim ? ` · até ${mesCurto(b.fim)}` : ''}</small></span>
+          <span class="item-n">${esc(b.nome)}<small>Todo dia ${b.dia} · ${esc(CAT[b.cat]?.nome || '')}${b.cartao && cardById(b.cartao) ? ` · no cartão ${esc(cardName(cardById(b.cartao)))}` : ''}${b.fim ? ` · até ${mesCurto(b.fim)}` : ''}</small></span>
           <span class="money item-v">${brl(+b.valor)}</span>
         </button></li>`).join('')}</ul>` : ''}
     </div>
@@ -2810,7 +2858,7 @@ document.addEventListener('click', (ev) => {
       for (const f of Object.values(D().faturas)) if (f.cardId === id) { delete D().faturas[f.id]; if (!S.example) Store.removeFatura(f.id); }
       S.edit = null; S.confirm = null; Store.saveCfg(); toast('Cartão apagado.'); break;
     }
-    case 'newbill': S.edit = { kind: 'bill', draft: { nome: '', valor: '', dia: '', cat: 'moradia', inicio: '', fim: '' } }; S.confirm = null; break;
+    case 'newbill': S.edit = { kind: 'bill', draft: { nome: '', valor: '', dia: '', cat: 'moradia', cartao: '', inicio: '', fim: '' } }; S.confirm = null; break;
     case 'editbill': if (S.example) { toast('Essa conta é só um exemplo. Adicione as suas.'); return; } { const x = bills().find((y) => y.id === b.dataset.id); S.edit = { kind: 'bill', draft: { ...x, valor: String(x.valor).replace('.', ',') } }; S.confirm = null; break; }
     case 'askdelbill': S.confirm = 'delbill'; break;
     case 'delbill': cfg.bills = cfg.bills.filter((x) => x.id !== S.edit.draft.id); S.edit = null; S.confirm = null; Store.saveCfg(); toast('Conta apagada.'); break;
@@ -2932,7 +2980,7 @@ document.addEventListener('submit', (ev) => {
     if (valor == null) { toast('Informe o valor da conta.'); return; }
     if (!(dia >= 1 && dia <= 31)) { toast('Informe o dia do vencimento (1 a 31).'); return; }
     if (d.inicio && d.fim && d.fim < d.inicio) { toast('O mês final vem antes do inicial.'); return; }
-    const x = { id: d.id || 'b' + uid(), nome: d.nome.trim(), valor, dia, cat: d.cat || 'outros', inicio: d.inicio || '', fim: d.fim || '' };
+    const x = { id: d.id || 'b' + uid(), nome: d.nome.trim(), valor, dia, cat: d.cat || 'outros', cartao: d.cartao || '', inicio: d.inicio || '', fim: d.fim || '' };
     const i = cfg.bills.findIndex((y) => y.id === x.id);
     if (i >= 0) cfg.bills[i] = x; else cfg.bills.push(x);
     toast('Conta salva.');
