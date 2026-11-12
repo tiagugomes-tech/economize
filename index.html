@@ -639,6 +639,34 @@ button.hero-fig { cursor: pointer; }
 .dica-a b { color: var(--ok); font-size: .9rem; white-space: nowrap; }
 .dica-a small { color: var(--muted); font-size: .7rem; }
 .dica-note { margin: 8px 0 0; font-size: .74rem; color: var(--muted); }
+
+/* v18 orçamento e objetivos */
+.orc-l, .obj-l { list-style: none; margin: 0; padding: 0; }
+.orc-l li + li { border-top: 1px solid var(--rule); }
+.orc-row { display: flex; flex-direction: column; gap: 6px; width: 100%; padding: 12px 0; background: none; border: 0; text-align: left; color: inherit; font: inherit; cursor: pointer; }
+.orc-top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.orc-n { font-weight: 600; display: flex; align-items: center; gap: 7px; }
+.orc-v { font-size: .84rem; color: var(--muted); }
+.orc-v b { color: var(--ink); }
+.orc-bar, .obj-bar { height: 8px; border-radius: 99px; background: var(--rule); overflow: hidden; }
+.orc-bar span, .obj-bar span { display: block; height: 100%; border-radius: 99px; background: var(--ok); }
+.orc-row.warn .orc-bar span { background: var(--warn); }
+.orc-row.bad .orc-bar span { background: var(--bad); }
+.orc-s { font-size: .78rem; color: var(--muted); }
+.orc-row.bad .orc-s { color: var(--bad); font-weight: 600; }
+.obj { padding: 14px 0; display: flex; flex-direction: column; gap: 7px; align-items: stretch; }
+.obj + .obj, .obj-l li.editing + li, .obj-l li + li.editing { border-top: 1px solid var(--rule); }
+.obj-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.obj-n { background: none; border: 0; padding: 0; text-align: left; font: inherit; font-weight: 700; font-size: 1rem; color: var(--ink); cursor: pointer; display: flex; flex-direction: column; gap: 1px; }
+.obj-n small { font-weight: 400; font-size: .76rem; color: var(--muted); }
+.obj-p { font-weight: 800; font-size: 1.1rem; color: var(--accent); }
+.obj-bar { height: 10px; }
+.obj-bar span { background: var(--accent); }
+.obj.done .obj-bar span { background: var(--ok); }
+.obj-v { font-size: .86rem; color: var(--muted); }
+.obj-v b { color: var(--ink); font-size: 1rem; }
+.obj-s { font-size: .8rem; color: var(--muted); }
+.obj .btn { align-self: flex-start; }
 </style>
 
 <header class="top">
@@ -2874,6 +2902,13 @@ document.addEventListener('click', (ev) => {
     case 'editav': { const x = avulsas().find((y) => y.id === b.dataset.id); S.edit = { kind: 'avulsa', draft: { ...x, valor: String(x.valor).replace('.', ',') } }; S.confirm = null; break; }
     case 'askdelav': S.confirm = 'delav'; break;
     case 'delav': cfg.entradas = avulsas().filter((x) => x.id !== S.edit.draft.id); S.edit = null; S.confirm = null; Store.saveCfg(); toast('Entrada apagada.'); break;
+    case 'neworc': S.edit = { kind: 'orc', draft: { cat: '', valor: '' } }; S.confirm = null; break;
+    case 'editorc': { const v = (cfg.orc || {})[b.dataset.cat]; S.edit = { kind: 'orc', draft: { cat: b.dataset.cat, valor: v ? String(v).replace('.', ',') : '' } }; S.confirm = null; break; }
+    case 'newobj': S.edit = { kind: 'objetivo', draft: { nome: '', alvo: '', guardado: '', prazo: '' } }; S.confirm = null; break;
+    case 'editobj': { const x = (cfg.objetivos || []).find((y) => y.id === b.dataset.id); if (!x) return; S.edit = { kind: 'objetivo', draft: { ...x, alvo: String(x.alvo).replace('.', ','), guardado: x.guardado ? String(x.guardado).replace('.', ',') : '' } }; S.confirm = null; break; }
+    case 'aporte': S.edit = { kind: 'aporte', draft: { id: b.dataset.id, valor: '' } }; S.confirm = null; break;
+    case 'askdelobj': S.confirm = 'delobj'; break;
+    case 'delobj': cfg.objetivos = (cfg.objetivos || []).filter((x) => x.id !== S.edit.draft.id); S.edit = null; S.confirm = null; Store.saveCfg(); toast('Objetivo apagado.'); break;
     case 'editmeta': { const v = metaOf(S.month); S.edit = { kind: 'meta', draft: { valor: v ? String(v).replace('.', ',') : '' } }; S.confirm = null; break; }
     case 'newgasto': S.edit = { kind: 'gasto', draft: { nome: '', valor: '', data: S.month === CUR ? TODAY : `${S.month}-01`, cat: '' } }; S.confirm = null; break;
     case 'editgasto': { const x = gastos().find((y) => y.id === b.dataset.id); if (!x) return; S.edit = { kind: 'gasto', draft: { ...x, valor: String(x.valor).replace('.', ',') } }; S.confirm = null; break; }
@@ -3036,7 +3071,7 @@ document.addEventListener('submit', (ev) => {
   if (!d) return;
   leaveExample();
   const cfg = S.data.cfg;
-  if (form === 'meta' || form === 'gasto' || form === 'conta') {
+  if (form === 'meta' || form === 'gasto' || form === 'conta' || form === 'orc' || form === 'objetivo' || form === 'aporte') {
     const okx = submitExtra(form, d);
     if (!okx) return;
     S.edit = null; S.confirm = null; Store.saveCfg(); render();
@@ -3250,6 +3285,8 @@ function viewMeta() {
           <span class="inc-v money">${brl(+g.valor)}</span></button></li>`;
       }).join('')}</ul>` : (E?.kind === 'gasto' ? '' : '<div class="empty">Nenhum gasto lançado neste mês. Comprou um picolé? Toque em Adicionar gasto.</div>')}
     </div>
+    ${orcPanel(M, E)}
+    ${objPanel(E)}
     <div class="panel">
       <div class="panel-h"><h2>Conta corrente</h2>${E?.kind === 'conta' ? '' : `<button class="btn sm" data-act="editconta">${temSaldo ? 'Atualizar saldo' : 'Informar saldo'}</button>`}</div>
       ${E?.kind === 'conta' ? contaForm(E.draft) : ctHtml}
@@ -3283,6 +3320,36 @@ function submitExtra(form, d) {
     if (saldo == null) { toast('Informe o saldo da conta.'); return false; }
     cfg.conta = { saldo, em: TODAY, cheque: parseMoney(d.cheque) || null };
     toast('Saldo atualizado.');
+    return true;
+  }
+  if (form === 'orc') {
+    if (!d.cat || !CAT[d.cat]) { toast('Escolha a categoria.'); return false; }
+    const v = parseMoney(d.valor);
+    cfg.orc = cfg.orc || {};
+    if (v && v > 0) cfg.orc[d.cat] = v; else delete cfg.orc[d.cat];
+    toast(v && v > 0 ? 'Orçamento salvo.' : 'Orçamento removido.');
+    return true;
+  }
+  if (form === 'objetivo') {
+    const alvo = parseMoney(d.alvo), guardado = parseMoney(d.guardado) || 0;
+    if (!d.nome?.trim()) { toast('Dê um nome para o objetivo.'); return false; }
+    if (alvo == null || alvo <= 0) { toast('Informe quanto você quer juntar.'); return false; }
+    if (guardado < 0) { toast('O valor guardado não pode ser negativo.'); return false; }
+    if (d.prazo && !/^\d{4}-\d{2}$/.test(d.prazo)) { toast('Informe o mês do prazo.'); return false; }
+    const x = { id: d.id || 'o' + uid(), nome: d.nome.trim(), alvo, guardado, prazo: d.prazo || '', criado: d.criado || TODAY };
+    cfg.objetivos = cfg.objetivos || [];
+    const k = cfg.objetivos.findIndex((y) => y.id === x.id);
+    if (k >= 0) cfg.objetivos[k] = x; else cfg.objetivos.push(x);
+    toast('Objetivo salvo.');
+    return true;
+  }
+  if (form === 'aporte') {
+    const v = parseMoney(d.valor);
+    const o = (cfg.objetivos || []).find((y) => y.id === d.id);
+    if (!o) return false;
+    if (v == null || v === 0) { toast('Informe o valor. Use sinal de menos se retirou.'); return false; }
+    o.guardado = Math.max(0, r2((+o.guardado || 0) + v));
+    toast(o.guardado >= o.alvo ? 'Objetivo alcançado. Parabéns!' : v > 0 ? 'Guardado. Continue assim.' : 'Retirada registrada.');
     return true;
   }
   return null;
@@ -3512,6 +3579,73 @@ function dicasCard(o) {
     <ul class="dica-l">${show.map((x) => `<li class="${x.bom ? 'bom' : ''}"><span class="tile-ic ${x.bom ? '' : 'warn'}">${iconSvg(x.ic)}</span><span class="dica-t"><b>${esc(x.t)}</b><small>${esc(x.s)}</small></span>${x.ano ? `<span class="dica-a"><b class="money">${brl(x.ano)}</b><small>por ano</small></span>` : ''}</li>`).join('')}</ul>
     ${d.length > 3 ? `<button class="link" data-act="toggledicas">${S.showDicas ? 'Mostrar menos' : `Ver mais ${d.length - 3}`}</button>` : ''}
     ${pot > 0 ? '<p class="dica-note">Estimativa: quanto dá no ano se este mês se repetir.</p>' : ''}
+  </div>`;
+}
+
+
+/* ===== v18: orçamento por categoria e objetivos de poupança ===== */
+const orcCfg = () => D().cfg.orc || (D().cfg.orc = {});
+const objetivos = () => D().cfg.objetivos || (D().cfg.objetivos = []);
+function gastoPorCat(M) {
+  const by = { ...spendingOf(M).byCat };
+  for (const g of gastosOf(M)) { const c = g.cat || categorize({ desc: g.nome }).cat; by[c] = r2((by[c] || 0) + (+g.valor || 0)); }
+  return by;
+}
+function orcPanel(M, E) {
+  const orc = orcCfg(), by = gastoPorCat(M);
+  const ids = Object.keys(orc).filter((c) => CAT[c] && orc[c] > 0).sort((a, b) => (by[b] || 0) / orc[b] - (by[a] || 0) / orc[a]);
+  const form = (d) => `<form class="form" data-form="orc">
+    <label class="fld" for="e-cat"><span>Categoria</span><select id="e-cat" data-f="cat" ${d.fixo ? 'disabled' : ''}><option value="">Escolha</option>${CATS.filter(([id]) => id !== 'tarifas').map(([id, n]) => `<option value="${id}" ${d.cat === id ? 'selected' : ''}>${n}${by[id] ? ` (${brl(by[id])} neste mês)` : ''}</option>`).join('')}</select></label>
+    ${field('e-valor', 'Quanto quero gastar por mês (R$)', d.valor, 'inputmode="decimal" placeholder="Ex.: 600,00"')}
+    <p class="hint-p">Vale para todos os meses, até você mudar. Deixe em branco para tirar.</p>
+    <div class="form-acts"><button class="btn" type="submit">Salvar orçamento</button><button class="btn ghost" type="button" data-act="cancel">Cancelar</button></div></form>`;
+  const totO = sumV(ids, (c) => orc[c]), totG = sumV(ids, (c) => by[c] || 0);
+  return `<div class="panel">
+    <div class="panel-h"><h2>Orçamento por categoria</h2>${E?.kind === 'orc' ? '' : '<button class="btn sm" data-act="neworc">Definir</button>'}</div>
+    ${E?.kind === 'orc' ? form(E.draft) : ''}
+    ${ids.length ? `<ul class="orc-l">${ids.map((c) => {
+      const g = by[c] || 0, p = Math.round((g / orc[c]) * 100), cls = p > 100 ? 'bad' : p >= 85 ? 'warn' : 'ok';
+      return `<li><button class="orc-row ${cls}" data-act="editorc" data-cat="${c}" aria-label="${esc(CAT[c].nome)}: ${brl(g)} de ${brl(orc[c])}. Toque para mudar.">
+        <span class="orc-top"><span class="orc-n"><i class="sw" style="background:${CAT[c].cor}"></i>${esc(CAT[c].nome)}</span><span class="orc-v"><b class="money">${brl(g)}</b> de ${brl(orc[c])}</span></span>
+        <span class="orc-bar"><span style="width:${Math.min(100, p)}%"></span></span>
+        <span class="orc-s">${p > 100 ? `passou ${brl(r2(g - orc[c]))}` : `sobram ${brl(r2(orc[c] - g))}`} · ${p}%</span></button></li>`; }).join('')}</ul>
+      <p class="hint-p" style="margin:8px 0 0">Total: <b>${brl(totG)}</b> de ${brl(totO)} em ${esc(MESES[+M.slice(5) - 1])}. Soma as faturas do mês, as contas fixas e os gastos lançados aqui.</p>`
+      : (E?.kind === 'orc' ? '' : '<div class="empty">Defina quanto quer gastar em cada categoria, como R$ 600 no mercado, e acompanhe pela barrinha.</div>')}
+  </div>`;
+}
+function objPanel(E) {
+  const os = objetivos();
+  const form = (d) => `<form class="form" data-form="objetivo">
+    ${field('e-nome', 'Para que é', d.nome, 'placeholder="Ex.: Viagem, reserva de emergência" required')}
+    ${field('e-alvo', 'Quanto quero juntar (R$)', d.alvo, 'inputmode="decimal" placeholder="Ex.: 5000,00" required')}
+    ${field('e-guardado', 'Quanto já tenho guardado (R$)', d.guardado, 'inputmode="decimal" placeholder="0,00"')}
+    ${field('e-prazo', 'Até quando (opcional)', d.prazo, 'type="month"')}
+    <div class="form-acts"><button class="btn" type="submit">Salvar objetivo</button><button class="btn ghost" type="button" data-act="cancel">Cancelar</button>
+    ${d.id ? (S.confirm === 'delobj' ? `<span class="confirm">Apagar este objetivo? <button class="btn bad sm" type="button" data-act="delobj">Apagar</button></span>` : `<button class="link muted" type="button" data-act="askdelobj">Apagar</button>`) : ''}</div></form>`;
+  const aporte = (d) => `<form class="form" data-form="aporte">
+    ${field('e-valor', 'Quanto guardei agora (R$)', d.valor, 'inputmode="decimal" placeholder="Ex.: 200,00. Use menos se retirou" required')}
+    <div class="form-acts"><button class="btn" type="submit">Somar ao objetivo</button><button class="btn ghost" type="button" data-act="cancel">Cancelar</button></div></form>`;
+  return `<div class="panel">
+    <div class="panel-h"><h2>Objetivos</h2>${E?.kind === 'objetivo' && !E.draft.id ? '' : '<button class="btn sm" data-act="newobj">Novo objetivo</button>'}</div>
+    ${E?.kind === 'objetivo' && !E.draft.id ? form(E.draft) : ''}
+    ${os.length ? `<ul class="obj-l">${os.map((o) => {
+      if (E?.kind === 'objetivo' && E.draft.id === o.id) return `<li class="editing">${form(E.draft)}</li>`;
+      const g = +o.guardado || 0, p = Math.min(100, Math.round((g / o.alvo) * 100)), falta = r2(Math.max(0, o.alvo - g));
+      let dica = '';
+      if (falta <= 0) dica = 'Objetivo alcançado.';
+      else if (o.prazo) {
+        const [y1, m1] = CUR.split('-').map(Number), [y2, m2] = o.prazo.split('-').map(Number);
+        const meses = (y2 - y1) * 12 + (m2 - m1) + 1;
+        dica = meses >= 1 ? `Faltam ${brl(falta)}. Guardando ${brl(r2(falta / meses))} por mês você chega lá em ${mesCurto(o.prazo)}.` : `Faltam ${brl(falta)}. O prazo de ${mesCurto(o.prazo)} já passou.`;
+      } else dica = `Faltam ${brl(falta)}.`;
+      return `<li class="obj ${falta <= 0 ? 'done' : ''}">
+        <div class="obj-top"><button class="obj-n" data-act="editobj" data-id="${esc(o.id)}" aria-label="Editar objetivo ${esc(o.nome)}">${esc(o.nome)}<small>${o.prazo ? 'até ' + esc(mesCurto(o.prazo)) : 'sem prazo'}</small></button><span class="obj-p">${p}%</span></div>
+        <div class="obj-bar"><span style="width:${p}%"></span></div>
+        <div class="obj-v"><b class="money">${brl(g)}</b> de ${brl(o.alvo)}</div>
+        <div class="obj-s">${dica}</div>
+        ${E?.kind === 'aporte' && E.draft.id === o.id ? aporte(E.draft) : `<button class="btn sm ghost" data-act="aporte" data-id="${esc(o.id)}">Guardei mais</button>`}
+      </li>`; }).join('')}</ul>`
+      : (E?.kind === 'objetivo' ? '' : '<div class="empty">Crie um objetivo, como juntar R$ 5.000 para uma viagem, e acompanhe quanto já guardou.</div>')}
   </div>`;
 }
 
