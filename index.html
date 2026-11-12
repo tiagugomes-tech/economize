@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#1650C8">
+<meta name="theme-color" content="#0B7A55">
 <meta name="description" content="Controle das faturas de cartão, parcelas e vencimentos. Seus dados ficam só no seu aparelho.">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -23,17 +23,17 @@
 <style>
 /* Layout: app de uma coluna larga — cabeçalho com mês, abas no topo (desktop) ou embaixo (celular); resumo em duas colunas, livro-razão com linhas pautadas */
 :root {
-  --bg: #F1F5FB;
+  --bg: #F2F5F3;
   --surface: #FFFFFF;
-  --surface-2: #F7F9FD;
-  --ink: #0B1220;
-  --muted: #586579;
-  --line: #D9E1EE;
-  --rule: #E6ECF5;
-  --accent: #1650C8;
+  --surface-2: #F7FAF8;
+  --ink: #111917;
+  --muted: #56645F;
+  --line: #D8E1DC;
+  --rule: #E5ECE8;
+  --accent: #0B7A55;
   --accent-ink: #FFFFFF;
-  --accent-soft: #DEE9FB;
-  --accent-2: #9DB4E0;
+  --accent-soft: #D9F1E6;
+  --accent-2: #94CDB6;
   --ok: #1E8449; --ok-soft: #DDF2E4;
   --warn: #A86506; --warn-soft: #FBEBCF;
   --bad: #B93C1F; --bad-soft: #F9DDD5;
@@ -48,8 +48,8 @@
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #05070B; --surface: #0E131B; --surface-2: #131A24; --ink: #EAF0F9; --muted: #94A1B5; --line: #1F2938; --rule: #171F2B;
-    --accent: #5B9BFF; --accent-ink: #05101F; --accent-soft: #11264A; --accent-2: #3F5F94;
+    --bg: #0B0D0D; --surface: #151919; --surface-2: #1B2020; --ink: #EAF1EE; --muted: #96A39E; --line: #262D2B; --rule: #1D2322;
+    --accent: #34D399; --accent-ink: #04130D; --accent-soft: #0F3327; --accent-2: #2E7D62;
     --ok: #5DCB8A; --ok-soft: #173826; --warn: #E6A84A; --warn-soft: #3A2B12; --bad: #F08468; --bad-soft: #3D1E16;
     --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 22px -12px rgba(0, 0, 0, .6);
     --g1: #3987e5; --g2: #d95926; --g3: #199e70; --g4: #c98500; --g5: #d55181; --g6: #9085e9; --g7: #e66767; --g0: #6f7874;
@@ -60,8 +60,8 @@
 :root[data-theme="dark"] {
   --g1: #3987e5; --g2: #d95926; --g3: #199e70; --g4: #c98500; --g5: #d55181; --g6: #9085e9; --g7: #e66767; --g0: #6f7874;
   --in: #5DCB8A;
-  --bg: #05070B; --surface: #0E131B; --surface-2: #131A24; --ink: #EAF0F9; --muted: #94A1B5; --line: #1F2938; --rule: #171F2B;
-  --accent: #5B9BFF; --accent-ink: #05101F; --accent-soft: #11264A; --accent-2: #3F5F94;
+  --bg: #0B0D0D; --surface: #151919; --surface-2: #1B2020; --ink: #EAF1EE; --muted: #96A39E; --line: #262D2B; --rule: #1D2322;
+  --accent: #34D399; --accent-ink: #04130D; --accent-soft: #0F3327; --accent-2: #2E7D62;
   --ok: #5DCB8A; --ok-soft: #173826; --warn: #E6A84A; --warn-soft: #3A2B12; --bad: #F08468; --bad-soft: #3D1E16;
   --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 22px -12px rgba(0, 0, 0, .6);
   color-scheme: dark;
@@ -591,7 +591,7 @@ body.report-mode main { padding-bottom: 32px; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 
 /* v16 hero + dicas */
-.hero { border-radius: 18px; padding: 20px 18px 16px; color: #fff; background: radial-gradient(120% 140% at 100% 0%, #3d8bff 0%, rgba(61,139,255,0) 55%), linear-gradient(140deg, #081B4B 0%, #123FA6 58%, #1650C8 100%); box-shadow: 0 14px 30px -16px rgba(22, 80, 200, .7); position: relative; overflow: hidden; }
+.hero { border-radius: 18px; padding: 20px 18px 16px; color: #fff; background: radial-gradient(120% 140% at 100% 0%, rgba(52,211,153,.45) 0%, rgba(52,211,153,0) 55%), linear-gradient(140deg, #0E1513 0%, #0A4A36 55%, #0B7A55 100%); box-shadow: 0 14px 30px -16px rgba(11, 122, 85, .7); position: relative; overflow: hidden; }
 .hero-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .hero-main { min-width: 0; }
 .hero-oi { font-size: .86rem; opacity: .82; }
