@@ -589,6 +589,56 @@ body.report-mode main { padding-bottom: 32px; }
 }
 @media (max-width: 400px) { #sync { display: none; } }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* v16 hero + dicas */
+.hero { border-radius: 18px; padding: 20px 18px 16px; color: #fff; background: radial-gradient(120% 140% at 100% 0%, #3d8bff 0%, rgba(61,139,255,0) 55%), linear-gradient(140deg, #081B4B 0%, #123FA6 58%, #1650C8 100%); box-shadow: 0 14px 30px -16px rgba(22, 80, 200, .7); position: relative; overflow: hidden; }
+.hero-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.hero-main { min-width: 0; }
+.hero-oi { font-size: .86rem; opacity: .82; }
+.hero-lbl { margin-top: 10px; font-size: .74rem; letter-spacing: .08em; text-transform: uppercase; opacity: .8; font-weight: 600; }
+.hero-v { font-size: clamp(2rem, 9.5vw, 2.9rem); font-weight: 800; letter-spacing: -.02em; line-height: 1.08; margin-top: 2px; white-space: nowrap; }
+.hero-v.neg { color: #FFD3C7; }
+.hero-sub { font-size: .82rem; opacity: .88; margin-top: 4px; }
+.hero-ring { position: relative; flex: 0 0 auto; width: 84px; height: 84px; background: none; border: 0; padding: 0; color: #fff; cursor: pointer; border-radius: 50%; }
+.hero-ring svg { width: 100%; height: 100%; display: block; }
+.hr-bg { fill: rgba(255,255,255,.08); stroke: rgba(255,255,255,.22); stroke-width: 6; }
+.hr-fg { fill: none; stroke-width: 6; stroke-linecap: round; stroke: #6EE7A0; }
+.hero-ring.warn .hr-fg { stroke: #FFCB6B; }
+.hero-ring.bad .hr-fg { stroke: #FF9B85; }
+.hr-n { position: absolute; left: 0; right: 0; top: 21px; text-align: center; font-size: 1.55rem; font-weight: 800; line-height: 1; }
+.hr-l { position: absolute; left: 0; right: 0; top: 48px; text-align: center; font-size: .5rem; letter-spacing: .06em; text-transform: uppercase; opacity: .85; }
+.hero-why { margin-top: 12px; padding: 12px; border-radius: 12px; background: rgba(255,255,255,.12); font-size: .84rem; }
+.hero-why ul { list-style: none; margin: 8px 0; padding: 0; display: grid; gap: 6px; }
+.hero-why li { display: flex; justify-content: space-between; gap: 10px; }
+.hero-why li .money { color: #FFD3C7; font-weight: 700; }
+.hero-why p { margin: 6px 0; }
+.hero-why small { display: block; opacity: .8; font-size: .74rem; line-height: 1.35; }
+.hero-figs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px; }
+.hero-fig { display: flex; flex-direction: column; gap: 2px; text-align: left; padding: 11px 12px; border-radius: 12px; background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.14); color: #fff; min-width: 0; font: inherit; }
+button.hero-fig { cursor: pointer; }
+.hf-l { font-size: .74rem; opacity: .85; display: flex; align-items: center; gap: 6px; }
+.hf-dot { width: 8px; height: 8px; border-radius: 50%; background: #6EE7A0; }
+.hf-dot.out { background: #FF9B85; }
+.hf-v { font-size: 1.08rem; font-weight: 700; white-space: nowrap; }
+.hero-fig small { font-size: .72rem; opacity: .8; }
+.hero-gauge { margin-top: 14px; }
+.hg-track { height: 8px; border-radius: 99px; background: rgba(255,255,255,.2); overflow: hidden; }
+.hg-track span { display: block; height: 100%; border-radius: 99px; background: #6EE7A0; }
+.hero-gauge.warn .hg-track span { background: #FFCB6B; }
+.hero-gauge.bad .hg-track span { background: #FF9B85; }
+.hg-txt { font-size: .78rem; opacity: .9; margin-top: 6px; }
+.dica-pot { font-size: .8rem; color: var(--ok); background: var(--ok-soft); padding: 4px 10px; border-radius: 99px; white-space: nowrap; }
+.dica-l { list-style: none; margin: 0; padding: 0; }
+.dica-l li { display: flex; gap: 12px; align-items: flex-start; padding: 12px 0; border-top: 1px solid var(--rule); }
+.dica-l li:first-child { border-top: 0; padding-top: 4px; }
+.dica-l .tile-ic { flex: 0 0 auto; }
+.dica-t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.dica-t b { font-size: .92rem; }
+.dica-t small { color: var(--muted); font-size: .8rem; line-height: 1.4; }
+.dica-a { text-align: right; flex: 0 0 auto; display: flex; flex-direction: column; }
+.dica-a b { color: var(--ok); font-size: .9rem; white-space: nowrap; }
+.dica-a small { color: var(--muted); font-size: .7rem; }
+.dica-note { margin: 8px 0 0; font-size: .74rem; color: var(--muted); }
 </style>
 
 <header class="top">
@@ -1830,14 +1880,14 @@ function render() {
   let html = '';
   if (!S.loaded) html += `<div class="loading"><span class="spin"></span>Carregando seus dados…</div>`;
   else if (S.report) html += reportHtml();
-  else if (S.view === 'resumo') html += reportBtn() + viewResumo();
+  else if (S.view === 'resumo') html += viewResumo() + reportBtn();
   else if (S.view === 'meta') html += viewMeta();
   else if (S.view === 'calendario') html += viewCalendario() + icsPanel();
   else if (S.view === 'entradas') html += viewEntradas();
   else if (S.view === 'faturas') html += viewFaturas();
   else html += viewCadastro();
   document.body.classList.toggle('report-mode', !!S.report);
-  app.innerHTML = (S.loaded && !S.report ? alertBanner() : '') + html;
+  app.innerHTML = (S.loaded && !S.report && !(S.view === 'resumo' && hasData()) ? alertBanner() : '') + html;
 }
 const reportBtn = () => (hasData() ? '<div class="row rep-open"><button class="btn ghost sm" data-act="report">Relatório da situação atual (PDF)</button></div>' : '');
 
@@ -2023,23 +2073,12 @@ function viewResumo() {
   const shown = gsel || S.showAll ? lista : lista.slice(0, 6);
   const deltaPct = prevSp.total > 0 && saidas > 0 ? Math.round(((saidas - prevSp.total) / prevSp.total) * 100) : null;
 
-  return `${passosCard(false)}<section class="dash">
-    <div class="panel balance">
-      <div class="bal-top">
-        <div class="eyebrow">Balanço de ${esc(MESES[+M.slice(5) - 1])}</div>
-        ${deltaPct != null ? `<span class="delta ${deltaPct > 0 ? 'up' : 'down'}">${deltaPct > 0 ? '+' : ''}${deltaPct}% de saídas vs ${MES3[+addM(M, -1).slice(5) - 1]}</span>` : ''}
-      </div>
-      <div class="bal-figs">
-        <button class="bal-fig in" data-nav-to="entradas"><span class="lbl">Entradas</span><span class="bal-v money">${brl(entradas)}</span>${entradas ? `<small>${recebido < entradas ? `${brl(recebido)} já recebido` : 'tudo recebido'}</small>` : '<small>cadastre suas entradas</small>'}</button>
-        <div class="bal-fig out"><span class="lbl">Saídas</span><span class="bal-v money">${brl(saidas)}</span><small>${aPagar > 0 ? `${brl(aPagar)} ainda a pagar` : 'tudo pago'}</small></div>
-        <div class="bal-fig res ${entradas ? (sobra >= 0 ? 'pos' : 'neg') : ''}"><span class="lbl">${entradas ? (sobra >= 0 ? 'Sobra' : 'Falta') : 'Sobra'}</span><span class="bal-v money">${entradas ? brl(Math.abs(sobra)) : '—'}</span><small>${entradas ? (sobra >= 0 ? 'depois de pagar tudo' : 'para fechar o mês') : 'sem entradas no mês'}</small></div>
-      </div>
-      ${pct != null ? `<div class="gauge ${gaugeCls}" role="img" aria-label="Saídas consomem ${pct}% das entradas">
-        <div class="gauge-track"><span style="width:${Math.min(100, pct)}%"></span>${pct > 100 ? '<i class="over"></i>' : ''}</div>
-        <div class="gauge-txt"><b>${pct}%</b> da renda vai para as saídas do mês · <span class="g-st">${pct > 100 ? 'acima da renda' : pct >= 85 ? 'no limite' : 'dentro do orçamento'}</span></div>
-      </div>` : `<div class="note">Cadastre o salário e outras entradas para ver se o orçamento fecha. <button class="link" data-nav-to="entradas">Ir para Entradas</button></div>`}
-      ${sp.missing.length ? `<div class="note">Falta a fatura de ${sp.missing.map((c) => `<strong>${esc(cardName(c))}</strong>`).join(', ')} neste mês. <button class="link" data-act="goimport">Importar</button></div>` : ''}
-    </div>
+  return `<section class="dash">
+    ${heroCard({ M, entradas, recebido, saidas, sobra, aPagar, pct, gaugeCls, deltaPct, sp, ev, parcMes: committed(M).parc })}
+    ${alertBanner()}
+    ${dicasCard({ M, entradas, saidas, sp, prevSp, pcs })}
+    ${passosCard(false)}
+      ${sp.missing.length ? `<div class="panel"><div class="note">Falta a fatura de ${sp.missing.map((c) => `<strong>${esc(cardName(c))}</strong>`).join(', ')} neste mês. <button class="link" data-act="goimport">Importar</button></div></div>` : ''}
 
     <div class="row-2">
       <div class="panel">
@@ -2818,6 +2857,8 @@ document.addEventListener('click', (ev) => {
     case 'mnext': S.month = addM(S.month, 1); S.selDay = null; S.catFilter = null; S.grpFilter = null; S.edit = null; break;
     case 'grp': S.grpFilter = S.grpFilter === b.dataset.grp ? null : b.dataset.grp; break;
     case 'grpclear': S.grpFilter = null; break;
+    case 'toggledicas': S.showDicas = !S.showDicas; break;
+    case 'togglenota': S.showNota = !S.showNota; break;
     case 'toggleall': S.showAll = !S.showAll; break;
     case 'toggleparc': S.showParc = !S.showParc; break;
     case 'receb': {
@@ -3388,6 +3429,90 @@ async function restoreBk() {
     toast('Cópia anterior restaurada.');
     render();
   } catch (e) { S.confirm = null; toast('Não consegui restaurar a cópia.'); render(); }
+}
+
+
+/* ===== v16: cartão principal do mês, nota do mês e dicas de economia ===== */
+function notaMes({ entradas, saidas, sp, ev, parcMes }) {
+  if (!(entradas > 0)) return null;
+  const f = [];
+  const pct = (saidas / entradas) * 100;
+  if (pct > 100) f.push([-40, `As saídas passam da renda (${Math.round(pct)}%)`]);
+  else if (pct >= 85) f.push([-20, `As saídas levam ${Math.round(pct)}% da renda`]);
+  else if (pct >= 70) f.push([-8, `As saídas levam ${Math.round(pct)}% da renda`]);
+  const pj = (sp.juros / entradas) * 100;
+  if (pj > 3) f.push([-20, `Juros e tarifas levam ${pj.toFixed(1).replace('.', ',')}% da renda`]);
+  else if (pj > 1) f.push([-12, `Juros e tarifas levam ${pj.toFixed(1).replace('.', ',')}% da renda`]);
+  else if (sp.juros > 0) f.push([-6, `${brl(sp.juros)} em juros e tarifas`]);
+  const pp = (parcMes / entradas) * 100;
+  if (pp > 40) f.push([-15, `Parcelas tomam ${Math.round(pp)}% da renda`]);
+  else if (pp > 25) f.push([-8, `Parcelas tomam ${Math.round(pp)}% da renda`]);
+  const atr = ev.filter((x) => !x.pago && x.status === 'atrasado').length;
+  if (atr) f.push([-Math.min(15, atr * 5), `${atr} conta${atr > 1 ? 's' : ''} em atraso`]);
+  if (sp.tx.some((t) => t.cat === 'pix' && t.juros)) f.push([-5, 'Pix no crédito com juros']);
+  const n = Math.max(0, 100 + f.reduce((s, x) => s + x[0], 0));
+  return { n, f, cls: n >= 80 ? 'ok' : n >= 60 ? 'warn' : 'bad', txt: n >= 80 ? 'Mês no azul' : n >= 60 ? 'Pede atenção' : 'Sinal de alerta' };
+}
+
+function heroCard(o) {
+  const { M, entradas, recebido, saidas, sobra, aPagar, pct, gaugeCls, deltaPct } = o;
+  const h = new Date().getHours();
+  const nome = (S.session && (S.session.nome || S.session.u) || '').split(' ')[0];
+  const oi = (h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite') + (nome ? ', ' + nome : '');
+  const mes = MESES[+M.slice(5) - 1];
+  const nt = notaMes(o);
+  const C = 2 * Math.PI * 34;
+  const ring = nt ? `<button class="hero-ring ${nt.cls}" data-act="togglenota" aria-expanded="${S.showNota ? 'true' : 'false'}" aria-label="Nota do mês: ${nt.n} de 100. ${nt.txt}. Toque para ver o porquê.">
+      <svg viewBox="0 0 80 80" aria-hidden="true"><circle cx="40" cy="40" r="34" class="hr-bg"/><circle cx="40" cy="40" r="34" class="hr-fg" stroke-dasharray="${((nt.n / 100) * C).toFixed(1)} ${C.toFixed(1)}" transform="rotate(-90 40 40)"/></svg>
+      <span class="hr-n">${nt.n}</span><span class="hr-l">nota do mês</span></button>` : '';
+  return `<div class="hero">
+    <div class="hero-top">
+      <div class="hero-main">
+        <div class="hero-oi">${esc(oi)}</div>
+        <div class="hero-lbl">${entradas ? (sobra >= 0 ? `Sobra em ${esc(mes)}` : `Falta em ${esc(mes)}`) : `Saídas de ${esc(mes)}`}</div>
+        <div class="hero-v money ${entradas && sobra < 0 ? 'neg' : ''}">${brl(entradas ? Math.abs(sobra) : saidas)}</div>
+        <div class="hero-sub">${entradas ? (sobra >= 0 ? 'depois de pagar tudo' : 'para fechar o mês') : 'cadastre suas entradas para ver quanto sobra'}${nt ? ` · <b>${nt.txt}</b>` : ''}</div>
+      </div>
+      ${ring}
+    </div>
+    ${nt && S.showNota ? `<div class="hero-why"><b>Como chegamos em ${nt.n}</b>${nt.f.length ? `<ul>${nt.f.map(([p, t]) => `<li><span>${esc(t)}</span><span class="money">${p}</span></li>`).join('')}</ul>` : '<p>Nenhum ponto perdido neste mês.</p>'}<small>Começa em 100 e perde pontos por gasto acima da renda, juros, parcelas pesadas e atrasos. É um termômetro simples, não uma análise de crédito.</small></div>` : ''}
+    <div class="hero-figs">
+      <button class="hero-fig" data-nav-to="entradas"><span class="hf-l"><i class="hf-dot in"></i>Entradas</span><span class="hf-v money">${brl(entradas)}</span><small>${entradas ? (recebido < entradas ? `${brl(recebido)} já recebido` : 'tudo recebido') : 'toque para cadastrar'}</small></button>
+      <div class="hero-fig"><span class="hf-l"><i class="hf-dot out"></i>Saídas</span><span class="hf-v money">${brl(saidas)}</span><small>${aPagar > 0 ? `${brl(aPagar)} ainda a pagar` : 'tudo pago'}</small></div>
+    </div>
+    ${pct != null ? `<div class="hero-gauge ${gaugeCls}" role="img" aria-label="Saídas consomem ${pct}% das entradas"><div class="hg-track"><span style="width:${Math.min(100, pct)}%"></span></div><div class="hg-txt"><b>${pct}%</b> da renda vai para as saídas${deltaPct != null ? ` · ${deltaPct > 0 ? '+' : ''}${deltaPct}% vs ${MES3[+addM(M, -1).slice(5) - 1]}` : ''}</div></div>` : ''}
+  </div>`;
+}
+
+function dicasEconomia({ M, entradas, saidas, sp, prevSp, pcs }) {
+  const d = [];
+  let pot = 0;
+  if (sp.juros > 0) { d.push({ ic: 'juros', t: `${brl(sp.juros)} foram para juros e tarifas`, s: 'Pagar as faturas até o vencimento e fugir do Pix no crédito zera essa conta.', ano: r2(sp.juros * 12) }); pot += sp.juros * 12; }
+  const ass = sp.tx.filter((t) => t.cat === 'assinaturas' && !t.encargo).concat(sp.bl.filter((t) => t.cat === 'assinaturas'));
+  if (ass.length) { const tot = sumV(ass, (t) => t.v); const mx = ass.slice().sort((a, b) => b.v - a.v)[0]; d.push({ ic: 'parc', t: `${ass.length} assinatura${ass.length > 1 ? 's' : ''} somam ${brl(tot)} por mês`, s: `Dá ${brl(r2(tot * 12))} por ano. A maior é ${mx.desc} (${brl(mx.v)}). Ainda usa todas?` }); }
+  const an = sp.tx.filter((t) => /anuidade|mensalidade - plano/i.test(t.desc));
+  if (an.length) { const tot = sumV(an, (t) => t.v); d.push({ ic: 'card', t: `${brl(tot)} de anuidade de cartão`, s: 'Ligue e peça isenção. Muitos bancos tiram para não perder o cliente.', ano: r2(tot * 12) }); pot += tot * 12; }
+  const com = sp.tx.filter((t) => t.cat === 'alimentacao');
+  const comTot = sumV(com, (t) => t.v);
+  if (com.length >= 4 && comTot > 150) { const corte = r2(comTot * 0.2); d.push({ ic: 'pix', t: `Comer fora e delivery: ${brl(comTot)} em ${com.length} compras`, s: `Cortar 1 em cada 5 pedidos economiza cerca de ${brl(corte)} por mês.`, ano: r2(corte * 12) }); pot += corte * 12; }
+  let cres = null;
+  for (const [c, v] of Object.entries(sp.byCat)) { const a = prevSp.byCat[c] || 0; if (a > 0 && v - a > 100 && c !== 'tarifas' && (!cres || v - a > cres.dif)) cres = { c, dif: r2(v - a), a }; }
+  if (cres) d.push({ ic: 'juros', t: `${CAT[cres.c].nome} subiu ${brl(cres.dif)}`, s: `Era ${brl(cres.a)} em ${MES3[+addM(M, -1).slice(5) - 1]}. Vale olhar o que mudou.` });
+  const fimProx = pcs.filter((p) => p.fim >= M && p.fim <= addM(M, 2)).sort((a, b) => b.mensal - a.mensal);
+  if (fimProx.length) { const tot = sumV(fimProx, (p) => p.mensal); d.push({ ic: 'parc', bom: true, t: `${brl(tot)} por mês ficam livres até ${mesCurto(addM(M, 2))}`, s: `${fimProx.length} parcelamento${fimProx.length > 1 ? 's terminam' : ' termina'} em breve. Se não parcelar de novo, esse valor vira folga.` }); }
+  return { d, pot: r2(pot) };
+}
+
+function dicasCard(o) {
+  const { d, pot } = dicasEconomia(o);
+  if (!d.length) return '';
+  const show = S.showDicas ? d : d.slice(0, 3);
+  return `<div class="panel dicas">
+    <div class="panel-h"><h2>Onde dá pra economizar</h2>${pot > 0 ? `<span class="dica-pot">até <b class="money">${brl(pot)}</b> por ano</span>` : ''}</div>
+    <ul class="dica-l">${show.map((x) => `<li class="${x.bom ? 'bom' : ''}"><span class="tile-ic ${x.bom ? '' : 'warn'}">${iconSvg(x.ic)}</span><span class="dica-t"><b>${esc(x.t)}</b><small>${esc(x.s)}</small></span>${x.ano ? `<span class="dica-a"><b class="money">${brl(x.ano)}</b><small>por ano</small></span>` : ''}</li>`).join('')}</ul>
+    ${d.length > 3 ? `<button class="link" data-act="toggledicas">${S.showDicas ? 'Mostrar menos' : `Ver mais ${d.length - 3}`}</button>` : ''}
+    ${pot > 0 ? '<p class="dica-note">Estimativa: quanto dá no ano se este mês se repetir.</p>' : ''}
+  </div>`;
 }
 
 
