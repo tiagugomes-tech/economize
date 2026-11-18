@@ -3838,8 +3838,11 @@ const Cloud = {
         if (!hasData() || (l.base && l.base === local)) await this.takeServer(row);
         else this.conflict = row;
       } else if (local !== l.base) {
+        if (!hasData() && JSON.stringify(row.conteudo || {}).length > 600) { this.conflict = row; }
+        else {
         const v = await this.putRow(row.versao);
         if (v) { l.versao = v; l.base = local; } else this.conflict = await this.getRow();
+        }
       }
       if (S.session !== sess) return;
       if (this.conflict) { this.setState('conflict'); render(); return; }
@@ -3920,6 +3923,7 @@ const Cloud = {
     const u = normUser(email), salt = b64(crypto.getRandomValues(new Uint8Array(16))), iter = 310000;
     const key = await Acc.key(pwd, salt, iter);
     const rec = { u, nome, email, salt, iter, check: await Acc.enc(key, { ok: true }), criada: new Date().toISOString() };
+    try { const prev = localStorage.getItem(Acc.dataKey(u)); if (prev) localStorage.setItem('economize.old.' + u, prev); } catch (e) {}
     localStorage.setItem(Acc.dataKey(u), JSON.stringify(await Acc.enc(key, data)));
     Acc.saveList([...Acc.list().filter((r) => r.u !== u), rec]);
     link.versao = row ? row.versao : 0;
