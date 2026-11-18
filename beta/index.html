@@ -1710,6 +1710,26 @@ async function importFile(file) {
   await runImport();
 }
 
+/* várias faturas de uma vez: lê uma por uma; se alguma pedir senha ou uma escolha, espera você responder e continua */
+async function importMany(list) {
+  const files = Array.from(list || []);
+  if (files.length <= 1) { await importFile(files[0]); return; }
+  if (S.fila) { toast('Aguarde: as faturas anteriores ainda estão sendo lidas.'); return; }
+  const antes = Object.keys(S.data.faturas).length, falhas = [];
+  S.fila = { i: 0, n: files.length };
+  try {
+    for (let k = 0; k < files.length; k++) {
+      S.fila.i = k + 1; S.importErr = null; render();
+      try { await importFile(files[k]); } catch (e) { falhas.push(files[k].name); continue; }
+      while (S.importing || S.pwd || S.choose) await new Promise((r) => setTimeout(r, 200));
+      if (S.importErr) { falhas.push(files[k].name); S.importErr = null; }
+    }
+  } finally { S.fila = null; }
+  const novas = Object.keys(S.data.faturas).length - antes;
+  S.view = 'faturas'; S.fatId = null; render();
+  toast(`Pronto! ${files.length} arquivos lidos${novas > 0 ? `, ${novas} fatura${novas > 1 ? 's' : ''} nova${novas > 1 ? 's' : ''}` : ''}.${falhas.length ? ` Não consegui ler: ${falhas.slice(0, 3).join(', ')}${falhas.length > 3 ? '…' : ''}.` : ''}`);
+}
+
 async function importCsv(file) {
   const buf = await file.arrayBuffer();
   let text = new TextDecoder('utf-8').decode(buf);
@@ -2339,11 +2359,11 @@ function viewCalendario() {
 
 function importBox() {
   return `<div class="panel import ${S.importing ? 'busy' : ''}" id="dropzone">
-    <input type="file" id="pdffile" accept="application/pdf,.pdf,.csv,text/csv" class="sr">
+    <input type="file" id="pdffile" accept="application/pdf,.pdf,.csv,text/csv" class="sr" multiple>
     <label for="pdffile" class="drop">
       <svg viewBox="0 0 24 24" class="drop-ic"><path d="M12 15V3M7 8l5-5 5 5"/><path d="M4 15v4a2 2 0 002 2h12a2 2 0 002-2v-4"/></svg>
-      <span class="drop-t">${S.importing ? 'Lendo a fatura…' : 'Importar fatura (PDF ou CSV)'}</span>
-      <span class="drop-s">Toque para escolher ou arraste o arquivo aqui. Também lê a conta de água (CAERN) e de luz (COSERN). Leitura completa de Itaú, Nubank, Renner, Porto, BV, XP e Nubank (CSV). Santander, Banco do Brasil e outros usam a leitura genérica.</span>
+      <span class="drop-t">${S.importing ? (S.fila ? `Lendo ${S.fila.i} de ${S.fila.n}…` : 'Lendo a fatura…') : 'Importar faturas (PDF ou CSV)'}</span>
+      <span class="drop-s">Toque para escolher uma ou várias faturas de uma vez, ou arraste os arquivos aqui. Também lê a conta de água (CAERN) e de luz (COSERN). Leitura completa de Itaú, Nubank, Renner, Porto, BV, XP e Nubank (CSV). Santander, Banco do Brasil e outros usam a leitura genérica.</span>
     </label>
     ${S.pwd ? `<form class="pwd" data-form="pwd">
       <label for="pdfpwd">Este PDF tem senha${S.pwd.wrong ? ' — a senha não abriu, tente de novo' : ''}. Bancos costumam usar os primeiros dígitos do CPF.</label>
@@ -3102,7 +3122,7 @@ document.addEventListener('keydown', (ev) => {
 });
 document.addEventListener('change', (ev) => {
   const t = ev.target;
-  if (t.id === 'pdffile') { importFile(t.files[0]); t.value = ''; return; }
+  if (t.id === 'pdffile') { importMany(t.files); t.value = ''; return; }
   if (t.id === 'jsonfile') { importJson(t.files[0]); t.value = ''; return; }
   if (t.dataset.act === 'paydate') {
     if (t.value) { D().cfg.paid[t.dataset.key] = t.value; Store.saveCfg(); toast(`Data do pagamento: ${dBR(t.value)}.`); render(); }
@@ -3191,7 +3211,7 @@ document.addEventListener('submit', (ev) => {
   const z = ev.target.closest && ev.target.closest('#dropzone');
   if (!z) return;
   ev.preventDefault();
-  if (t === 'drop' && ev.dataTransfer.files[0]) importFile(ev.dataTransfer.files[0]);
+  if (t === 'drop' && ev.dataTransfer.files[0]) importMany(ev.dataTransfer.files);
 }));
 
 async function exportJson() {
