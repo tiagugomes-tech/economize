@@ -1,0 +1,7 @@
+# Material privado: nunca vai para o GitHub publico
+fonte/
+COORDENACAO.md
+GEMINI.md
+CLAUDE.md
+.DS_Store
+*.bak
