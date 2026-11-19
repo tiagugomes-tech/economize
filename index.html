@@ -1327,7 +1327,8 @@ const Parser = (() => {
      k = quantos meses depois do vencimento desta fatura */
   function projectFuture(f) {
     const out = [];
-    if (f && f.futuroK && f.futuroK.length) return f.futuroK.map((x) => ({ ...x }));
+    /* o bloco "Demais parcelas" é só um total sem meses: não entra na linha do tempo */
+    if (f && f.futuroK && f.futuroK.length) return f.futuroK.filter((x) => !/^Demais parcelas/.test(x.desc || '')).map((x) => ({ ...x }));
     if (f && !Array.isArray(f) && f.futuro && f.futuro.length) {
       // lista do próprio banco: cada item é a parcela da PRÓXIMA fatura
       for (const t of f.futuro) {
@@ -2060,6 +2061,26 @@ function parcelamentos() {
   return out.sort((a, b) => b.restante - a.restante);
 }
 
+/* parcelas que o banco informa só como total, sem dizer em que meses vencem */
+function parcelasSemData() {
+  let tot = 0;
+  for (const c of cards()) {
+    const f = fatOfCard(c.id)[0];
+    if (f && Array.isArray(f.futuroK)) tot += f.futuroK.filter((x) => /^Demais parcelas/.test(x.desc || '')).reduce((s, x) => s + x.v, 0);
+  }
+  return r2(tot);
+}
+/* compras cuja última parcela já veio numa fatura de meses anteriores (últimos 6 meses até o mês escolhido) */
+function parcelasQueAcabaram(M) {
+  const ini = addM(M, -6), out = {};
+  for (const f of allFat()) {
+    const m = f.venc.slice(0, 7);
+    if (m >= M || m < ini) continue;
+    for (const t of f.tx) if (t.parc && t.parc[0] === t.parc[1] && t.parc[1] > 1) (out[m] ||= []).push({ desc: t.desc, qtd: 1, mensal: t.v });
+  }
+  return out;
+}
+
 /* ---------- gráficos ---------- */
 function donut(parts, total, center) {
   const R = 78, C = 2 * Math.PI * R, gap = parts.length > 1 ? 2.2 : 0;
@@ -2140,6 +2161,7 @@ function viewResumo() {
   // compras cuja última parcela está nas faturas deste mês
   for (const f of allFat()) if (f.venc.slice(0, 7) === M) for (const t of f.tx) if (t.parc && t.parc[0] === t.parc[1]) (ends[M] ||= []).push({ desc: t.desc, qtd: 1, mensal: t.v });
 
+  const passou = parcelasQueAcabaram(M), semData = parcelasSemData();
   const prox = eventsOf(M).concat(eventsOf(addM(M, 1))).filter((e) => !e.pago && (e.status === 'atrasado' || e.date >= (M === CUR ? TODAY : `${M}-01`))).slice(0, 5);
   const lista = [...sp.tx, ...sp.bl].filter((t) => !gsel || gsel.cats.includes(t.cat)).sort((a, b) => b.v - a.v);
   const shown = gsel || S.showAll ? lista : lista.slice(0, 6);
@@ -2209,6 +2231,8 @@ function viewResumo() {
           </div>`; }).join('')}
       </div></div>
       <div class="legend"><span><i class="sw" style="background:var(--accent)"></i>Total de parcelas no mês</span><span><b class="pos">−valor</b> quanto a conta cai em relação ao mês anterior</span></div>
+      ${semData > 0 ? `<p class="hint-p"><small>Mais ${brl(semData)} em parcelas que o banco informa só como total, sem os meses. Não sabemos quando acabam, por isso não entram no gráfico nem nas economias.</small></p>` : ''}
+      ${Object.keys(passou).length ? `<div class="pc-ends"><div class="lbl">O que já acabou</div><ul>${Object.keys(passou).sort().reverse().map((m) => `<li><span class="pe-m">${esc(mesCurto(m))}</span><span class="pe-n">${passou[m].map((p) => esc(p.desc)).join(', ')}</span><span class="pe-v money pos">−${brl(r2(passou[m].reduce((s2, p) => s2 + p.mensal, 0)))}/mês</span></li>`).join('')}</ul></div>` : ''}
       ${Object.keys(ends).length ? `<div class="pc-ends"><div class="lbl">Quando cada uma acaba</div><ul>${Object.keys(ends).sort().map((m) => `<li><span class="pe-m">${esc(mesCurto(m))}</span><span class="pe-n">${ends[m].map((p) => esc(p.desc) + (p.qtd > 1 ? ` <span class="tag">${p.qtd}×</span>` : '')).join(', ')}</span><span class="pe-v money pos">−${brl(r2(ends[m].reduce((s2, p) => s2 + p.mensal, 0)))}/mês</span></li>`).join('')}</ul></div>` : ''}`
       : '<div class="empty">Nenhuma parcela nas faturas importadas.</div>'}
     </div>
