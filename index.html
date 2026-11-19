@@ -2572,6 +2572,7 @@ function viewCadastro() {
         : '<div class="empty">As regras aparecem aqui quando você troca a categoria de um lançamento.</div>'}
     </div>
 
+    ${assinaturasPanel()}
     ${cloudPanel()}
     <div class="panel">
       <div class="panel-h"><h2>Seus dados</h2></div>
@@ -3128,6 +3129,7 @@ document.addEventListener('click', (ev) => {
       if (!u || typed !== u) { S.acc = { ...S.acc, msg: 'Digite o usuário exatamente para confirmar.' }; renderLock(); return; }
       Acc.remove(u); S.acc = { mode: Acc.list().length ? 'entrar' : 'criar', msg: '', user: '' }; renderLock(); toast('Conta apagada deste aparelho.'); return;
     }
+    case 'assinignorar': (D().cfg.assinIgnorar ||= {})[b.dataset.k] = true; Store.saveCfg(); break;
     case 'cloudsync': Cloud.sync(true); return;
     case 'restabrir': restAbrir(); return;
     case 'restsel': if (REST.s) { REST.s.sel = +b.dataset.i; render(); } return;
@@ -3440,6 +3442,52 @@ function restHtml() {
     ${sel ? `<p class="confirm">Voltar para <b>${esc(restFmt(sel.quando))}</b>? O que você mudou depois disso sai do app (continua guardado nas versões). <button class="btn bad sm" data-act="restok" ${s.estado === 'restaurando' ? 'disabled' : ''}>${s.estado === 'restaurando' ? 'Restaurando…' : 'Restaurar'}</button> <button class="btn ghost sm" data-act="restcancel">Cancelar</button></p>` : ''}
     <div style="max-height:320px;overflow:auto">${lista}</div>
     <div class="row ia-actions"><button class="btn ghost" data-act="restfechar">Fechar</button></div></div>`;
+}
+/* Assinaturas e gastos recorrentes: acha, nas faturas já importadas, estabelecimentos que cobram todo mês
+   (3 meses seguidos ou mais, valor parecido, fora parcelamentos e encargos). Só leitura: nada é gravado,
+   exceto a lista de "isso não é assinatura" (cfg.assinIgnorar). */
+function assinMesIdx(m) { const [a, b] = m.split('-').map(Number); return a * 12 + b - 1; }
+function detectarAssinaturas() {
+  const fats = Object.values(S.data.faturas || {}).filter((f) => f && f.venc && Array.isArray(f.tx));
+  if (!fats.length) return [];
+  const ignor = (S.data.cfg && S.data.cfg.assinIgnorar) || {};
+  const ult = Math.max(...fats.map((f) => assinMesIdx(f.venc.slice(0, 7))));
+  const g = new Map();
+  for (const f of fats) {
+    const mes = f.venc.slice(0, 7);
+    for (const t of f.tx) {
+      if (!t || t.parc || t.tipo === 'encargo' || !(t.v > 0)) continue;
+      const k = mkey(t.desc || '');
+      if (!k || ignor[k]) continue;
+      let e = g.get(k); if (!e) g.set(k, (e = { k, nome: t.desc, meses: new Map() }));
+      const arr = e.meses.get(mes) || []; arr.push(t.v); e.meses.set(mes, arr);
+    }
+  }
+  const out = [];
+  for (const e of g.values()) {
+    const idx = [...e.meses.keys()].map(assinMesIdx).sort((a, b) => a - b);
+    // maior sequência de meses seguidos que termina no último mês importado ou no anterior
+    let run = 1, best = 0, fim = idx[0];
+    for (let i = 1; i <= idx.length; i++) {
+      if (i < idx.length && idx[i] === idx[i - 1] + 1) { run++; continue; }
+      if (idx[i - 1] >= ult - 1) best = Math.max(best, run);
+      run = 1;
+    }
+    if (best < 3) continue;
+    const vals = [...e.meses.entries()].sort().slice(-best).map(([, a]) => a.reduce((s, x) => s + x, 0));
+    const ord = [...vals].sort((a, b) => a - b), med = ord[Math.floor(ord.length / 2)];
+    if (!vals.every((v) => Math.abs(v - med) <= Math.max(1, med * 0.15))) continue;
+    out.push({ k: e.k, nome: e.nome, valor: med, meses: best, ativa: idx[idx.length - 1] === ult });
+  }
+  return out.sort((a, b) => b.valor - a.valor);
+}
+function assinaturasPanel() {
+  const lista = detectarAssinaturas();
+  if (!lista.length) return '';
+  const mensal = lista.filter((x) => x.ativa).reduce((s, x) => s + x.valor, 0);
+  const li = lista.map((x) => `<div class="row" style="justify-content:space-between;gap:8px;margin:6px 0"><span>${esc(x.nome)} <small>· ${x.meses} meses seguidos${x.ativa ? '' : ' · não veio na última fatura'}</small></span><span><b>${brl(x.valor)}</b>/mês <button class="btn ghost sm" data-act="assinignorar" data-k="${esc(x.k)}" aria-label="Não é assinatura: ${esc(x.nome)}">Não é</button></span></div>`).join('');
+  return `<div class="panel"><div class="panel-h"><h2>Assinaturas e cobranças que se repetem</h2></div>
+    <p class="hint-p">Achamos ${lista.length} cobrança${lista.length > 1 ? 's' : ''} que se repete${lista.length > 1 ? 'm' : ''} todo mês nas suas faturas: cerca de <b>${brl(mensal)}</b> por mês, <b>${brl(mensal * 12)}</b> por ano. Vale conferir se você ainda usa cada uma.</p>${li}</div>`;
 }
 /* ===== Economize v3: meta de gasto, saldo, avisos, calendário (.ics), relatório, migração ===== */
 const SCHEMA = 3;
