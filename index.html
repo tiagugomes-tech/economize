@@ -685,6 +685,11 @@ button.hero-fig { cursor: pointer; }
 .obj-v b { color: var(--ink); font-size: 1.05rem; }
 .obj-s { font-size: .82rem; color: var(--muted); line-height: 1.35; padding: 6px 10px; border-radius: 8px; background: var(--surface); border: 1px solid var(--rule); }
 .obj .btn { align-self: flex-start; }
+.ia-box { background: var(--accent-soft); color: var(--ink); }
+.ia-box .keep-row { display: flex; gap: 8px; align-items: flex-start; margin: 10px 0; font-size: .86rem; color: var(--muted); cursor: pointer; }
+.ia-box .keep-row input { margin-top: 3px; }
+.ia-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.ia-msg { margin: 8px 0 0; color: var(--bad, #b3261e); font-size: .88rem; }
 </style>
 
 <header class="top">
@@ -1744,7 +1749,7 @@ async function importMany(list) {
     for (let k = 0; k < files.length; k++) {
       S.fila.i = k + 1; S.importErr = null; render();
       try { await importFile(files[k]); } catch (e) { falhas.push(files[k].name); continue; }
-      while (S.importing || S.pwd || S.choose) await new Promise((r) => setTimeout(r, 200));
+      while (S.importing || S.pwd || S.choose || S.ia) await new Promise((r) => setTimeout(r, 200));
       if (S.importErr) { falhas.push(files[k].name); S.importErr = null; }
     }
   } finally { S.fila = null; }
@@ -1789,6 +1794,7 @@ async function runImport(password) {
   const r = Parser.parse(pages);
   lastLines = r.lines;
   S.importing = false;
+  if (iaPrecisa(r) && iaDisponivel() && lastLines && lastLines.join('\n').length >= 200) { iaOferecer(r, pending ? pending.name : '', lastLines.join('\n')); return; }
   if (!r.ok) {
     S.importErr = { msg: r.erro, banco: r.banco };
     render();
@@ -1864,7 +1870,7 @@ function placeFatura(r, name, card, outra, nomeNovo) {
   const f = {
     id, cardId: card.id, banco: r.banco, final: r.final, venc: r.venc, proxFech: r.proxFech, emissao: r.emissao,
     total: r.total, soma: r.soma, limite: r.limite, totalLanc: r.totalLanc, totalFuturo: r.totalFuturo, encargos: r.encargos || 0, encargosItens: r.encargosItens || [],
-    conferido: r.conferido, futuroConferido: r.futuroConferido, generico: r.generico, csv: !!r.csv,
+    conferido: r.conferido, futuroConferido: r.futuroConferido, generico: r.generico, csv: !!r.csv, ia: !!r.ia,
     tx: r.tx, pags: r.pags, futuro: r.futuro || [], futuroK: r.futuroK || null, importedAt: new Date().toISOString(), arquivo: name,
   };
   S.data.faturas[id] = f;
@@ -2407,6 +2413,7 @@ function importBox() {
       <div class="row"><input id="pdfpwd" type="password" autocomplete="off" inputmode="numeric"><button class="btn" type="submit">Abrir</button><button class="btn ghost" type="button" data-act="pwdcancel">Cancelar</button></div>
       <small class="muted">A senha só é usada para abrir o arquivo e não fica guardada.</small></form>` : ''}
     ${S.choose ? chooseHtml() : ''}
+    ${S.ia ? iaHtml() : ''}
     ${S.importErr ? `<div class="note bad-note">${esc(S.importErr.msg)} <button class="link" data-act="copylines">Copiar texto lido</button> e me mande no chat para eu ajustar o leitor do ${esc(BANCOS[S.importErr.banco] || 'seu banco')}.</div>` : ''}
   </div>`;
 }
@@ -2475,6 +2482,7 @@ function viewFatura(f) {
         : f.conferido === false ? `<div class="check bad"><span class="stamp warn">divergência</span>A soma lida (${brl(f.soma)}) não bate com o total do banco (${brl(f.totalLanc)}): ${f.soma < f.totalLanc ? 'faltam' : 'sobram'} ${brl(Math.abs(r2(f.totalLanc - f.soma)))}. Se o app foi atualizado depois que você subiu esta fatura, importe o mesmo PDF de novo e ela é substituída. Se continuar assim, envie o PDF para quem mantém o app, para ajustar a leitura do seu banco.</div>`
         : f.csv ? `<div class="check"><span class="stamp warn">conferir</span>O CSV não traz o total do banco: confira se o valor a pagar (${brl(f.total)}) é o mesmo da fatura no app.</div>`
         : `<div class="check"><span class="stamp warn">conferir</span>Leitura genérica: confira os lançamentos com o PDF. Se algo vier errado, <button class="link" data-act="copylines">copie o texto lido</button> e me mande no chat.</div>`}
+      ${f.ia ? '<div class="check"><span class="stamp warn">IA</span>Fatura lida por inteligência artificial: confira os lançamentos com o PDF.</div>' : ''}
       ${enc ? `<div class="note"><strong>Encargos desta fatura:</strong> ${(f.encargosItens || []).map((e) => `${esc(e.nome)} ${brl(e.v)}`).join(' · ')}. Multa e juros de mora aparecem quando a fatura anterior é paga depois do vencimento.</div>` : ''}
       ${f.total === 0 ? (() => { const p = f.pags.find((x) => Math.abs(-x.v - f.soma) < 0.02); return `<div class="note">Esta fatura veio zerada porque ${p ? `o pagamento de ${brl(-p.v)} em ${dBR(p.d)} já cobriu os lançamentos` : 'pagamentos feitos antes do fechamento já cobriram os lançamentos'}. Os gastos continuam contando no mês.</div>`; })() : ''}
     </div>
@@ -3041,6 +3049,10 @@ document.addEventListener('click', (ev) => {
     case 'choosepick': { const ch = S.choose; if (!ch) return; const card = cfg.cards.find((c) => c.id === b.dataset.id); S.choose = null; placeFatura(ch.r, ch.name, card, false); return; }
     case 'choosenew': { const ch = S.choose; if (!ch) return; const nm = (ch.nome || '').trim(); if (!nm) { toast('Dê um nome para essa conta ou cartão, por exemplo "Nubank Empresas".'); return; } S.choose = null; placeFatura(ch.r, ch.name, null, true, nm); return; }
     case 'choosecancel': S.choose = null; break;
+    case 'iarun': iaLer(); return;
+    case 'iaskip': { const ia = S.ia; if (!ia || !ia.r.ok) return; S.ia = null; leaveExample(); decideImport(ia.r, ia.name); return; }
+    case 'iaforce': { const ia = S.ia; if (!ia || !ia.conv) return; S.ia = null; leaveExample(); decideImport(ia.conv, ia.name); return; }
+    case 'iacancel': S.ia = null; pending = null; break;
     case 'restorebk': restoreBk(); return;
     case 'mtoday': S.month = CUR; S.selDay = null; break;
     case 'cat': S.catFilter = S.catFilter === b.dataset.cat ? null : b.dataset.cat; break;
@@ -3117,6 +3129,11 @@ document.addEventListener('click', (ev) => {
       Acc.remove(u); S.acc = { mode: Acc.list().length ? 'entrar' : 'criar', msg: '', user: '' }; renderLock(); toast('Conta apagada deste aparelho.'); return;
     }
     case 'cloudsync': Cloud.sync(true); return;
+    case 'restabrir': restAbrir(); return;
+    case 'restsel': if (REST.s) { REST.s.sel = +b.dataset.i; render(); } return;
+    case 'restok': restConfirmar(); return;
+    case 'restcancel': if (REST.s) { REST.s.sel = null; render(); } return;
+    case 'restfechar': REST.s = null; render(); return;
     case 'cloudserver': Cloud.resolve('server'); return;
     case 'clouddevice': Cloud.resolve('device'); return;
     case 'delconta': S.confirm = 'delconta'; break;
@@ -3285,6 +3302,145 @@ async function importJson(file) {
 
 window.addEventListener('hashchange', () => { const h = location.hash.slice(1); if (VIEWS[h] && h !== S.view) setView(h); });
 
+
+/* ===== Leitura com IA (plano B): só quando o leitor normal falha, diverge ou não conhece o banco ===== */
+function iaDisponivel() { return !!(S.session && Cloud.link && Cloud.link.access); }
+function iaPrecisa(r) { return !r.ok || (!r.conta && (r.conferido === false || (r.generico && !r.conferido))); }
+function iaOferecer(r, name, texto) {
+  S.ia = { r, name, texto, estado: 'oferta', msg: '', ok: false, motivo: !r.ok ? 'falhou' : r.conferido === false ? 'divergiu' : 'generico' };
+  S.importErr = null;
+  render();
+}
+function iaMsgErro(e) {
+  const k = e && e.j && e.j.erro;
+  if (e && e.offline) return 'Sem internet agora. Tente de novo quando estiver conectado.';
+  if (k === 'limite') return `Você já usou as ${e.j.limite || ''} leituras com IA deste mês. Use a leitura normal ou tente no mês que vem.`;
+  if (k === 'login' || (e && e.status === 401)) return 'Sua sessão expirou. Saia e entre na conta de novo, depois tente outra vez.';
+  if (k === 'tamanho') return 'O texto dessa fatura é curto ou grande demais para a IA.';
+  return 'A leitura com IA está indisponível agora. Tente de novo em instantes ou use a leitura normal.';
+}
+// a IA às vezes erra o ano de compras de dezembro em fatura de janeiro: compra nunca vem depois do vencimento
+function iaData(d, venc) { return d && venc && d > venc ? (+d.slice(0, 4) - 1) + d.slice(4) : d; }
+function iaBancoChave(nome, atual) {
+  if (atual && atual !== 'outro') return atual;
+  const n = String(nome || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  for (const [k, v] of Object.entries(BANCOS)) {
+    if (k === 'outro') continue;
+    if (n.includes(v.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase())) return k;
+  }
+  return 'outro';
+}
+// transforma a resposta da IA no mesmo formato que o leitor normal devolve
+function iaConverter(j, rLocal) {
+  const d = (j && j.dados) || {}, ISO = /^\d{4}-\d{2}-\d{2}$/;
+  const venc = d.vencimento;
+  if (!ISO.test(venc || '') || typeof d.total_fatura !== 'number') return null;
+  const lanc = (d.lancamentos || []).filter((l) => l && typeof l.valor === 'number' && ISO.test(l.data || ''));
+  if (!lanc.length) return null;
+  const arred = (x) => Math.round(x * 100) / 100;
+  const tx = lanc.map((l) => ({
+    d: iaData(l.data, venc),
+    desc: String(l.descricao || '').trim().slice(0, 80) || 'Lançamento',
+    parc: l.parcela_atual > 0 && l.parcela_total >= l.parcela_atual ? [l.parcela_atual, l.parcela_total] : null,
+    v: arred(l.valor),
+    tipo: l.tipo === 'servico' || l.tipo === 'encargo' ? 'serv' : 'compra',
+    hint: '',
+  }));
+  const soma = arred(tx.reduce((s, t) => s + t.v, 0));
+  const pags = (d.pagamentos || []).filter((p) => p && typeof p.valor === 'number' && ISO.test(p.data || ''))
+    .map((p) => ({ d: iaData(p.data, venc), desc: String(p.descricao || 'Pagamento').trim().slice(0, 80), v: -Math.abs(arred(p.valor)) }));
+  const titular = d.titular ? String(d.titular).toUpperCase().trim() : null;
+  return {
+    ok: true, ia: true, generico: true, banco: iaBancoChave(d.banco, rLocal && rLocal.banco),
+    venc, proxFech: ISO.test(d.fechamento_proxima || '') ? d.fechamento_proxima : null, emissao: null,
+    total: d.total_fatura, soma, totalLanc: d.total_fatura, conferido: Math.abs(soma - d.total_fatura) < 0.02,
+    limite: typeof d.limite === 'number' ? d.limite : null,
+    totalFuturo: typeof d.total_parcelas_futuras === 'number' ? d.total_parcelas_futuras : null,
+    encargos: 0, encargosItens: [], final: /^\d{4}$/.test(d.final_cartao || '') ? d.final_cartao : null,
+    titular, ident: titular ? titular.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Z0-9 ]/g, '').replace(/\s+/g, ' ').trim() : null,
+    tx, pags, futuro: [], futuroK: null,
+  };
+}
+async function iaLer() {
+  const ia = S.ia;
+  if (!ia || ia.estado === 'lendo') return;
+  if (!$('#ia-ok')?.checked) { toast('Marque a caixa para autorizar o envio do texto.'); return; }
+  if (ia.texto.length < 200 || ia.texto.length > 60000) { ia.msg = iaMsgErro({ j: { erro: 'tamanho' } }); render(); return; }
+  ia.ok = true; ia.estado = 'lendo'; ia.msg = ''; render();
+  let j;
+  try {
+    j = await Cloud.http('/functions/v1/ler-fatura', { method: 'POST', token: await Cloud.token(), body: { texto: ia.texto, consentimento: true, banco_detectado: ia.r.banco || null, motivo: ia.motivo } });
+  } catch (e) { ia.estado = 'oferta'; ia.msg = iaMsgErro(e); render(); return; }
+  const conv = iaConverter(j, ia.r);
+  if (!conv) { ia.estado = 'oferta'; ia.msg = 'A IA não conseguiu montar essa fatura. Tente de novo ou use a leitura normal.'; render(); return; }
+  if (conv.conferido) { S.ia = null; leaveExample(); decideImport(conv, ia.name); return; }
+  ia.estado = 'divergente'; ia.conv = conv; render();
+}
+function iaHtml() {
+  const ia = S.ia;
+  if (!ia) return '';
+  const r = ia.r, lendo = ia.estado === 'lendo';
+  if (ia.estado === 'divergente') {
+    const c = ia.conv;
+    return `<div class="note ia-box"><strong>A IA leu ${c.tx.length} lançamentos, mas a soma (${brl(c.soma)}) não bate com o total da fatura (${brl(c.total)}).</strong> Você pode importar mesmo assim e conferir com o PDF, ou descartar.
+      <div class="row ia-actions"><button class="btn" data-act="iaforce">Importar mesmo assim</button><button class="btn ghost" data-act="iacancel">Descartar</button></div></div>`;
+  }
+  const titulo = ia.motivo === 'falhou' ? 'Não consegui ler essa fatura sozinho.'
+    : ia.motivo === 'divergiu' ? `A soma que eu li (${brl(r.soma)}) não bate com o total da fatura (${brl(r.totalLanc)}).`
+    : 'Esse banco ainda não tem leitor próprio, então não dá para conferir a soma.';
+  return `<div class="note ia-box"><strong>${esc(titulo)}</strong> Posso pedir para uma inteligência artificial ler o texto da fatura.
+    <label class="keep-row"><input id="ia-ok" type="checkbox" ${ia.ok ? 'checked' : ''}><span>Autorizo enviar o <b>texto</b> da fatura (sem CPF, e-mail, telefone nem número de cartão completo) para a Anthropic, só para essa leitura. <a href="${siteBase()}privacidade.html" target="_blank" rel="noopener">Saiba mais</a></span></label>
+    ${ia.msg ? `<p class="ia-msg">${esc(ia.msg)}</p>` : ''}
+    <div class="row ia-actions"><button class="btn" data-act="iarun" ${lendo ? 'disabled' : ''}>${lendo ? 'Lendo com IA…' : 'Ler com IA'}</button>${r.ok ? `<button class="btn ghost" data-act="iaskip" ${lendo ? 'disabled' : ''}>Usar a leitura normal</button>` : ''}<button class="btn ghost" data-act="iacancel" ${lendo ? 'disabled' : ''}>Cancelar</button></div></div>`;
+}
+/* Restaurar versão: lista as cópias guardadas na conta (listar_versoes) e volta a uma delas (restaurar_versao).
+   Antes de restaurar, o estado atual é enviado à conta, então dá para desfazer escolhendo a versão mais recente. */
+const REST = { s: null }; // {estado:'carregando'|'lista'|'confirma'|'restaurando', itens, msg, sel}
+function restFmt(q) { return new Date(q).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }); }
+async function restAbrir() {
+  REST.s = { estado: 'carregando', itens: [], msg: '', sel: null }; render();
+  try {
+    if (Cloud.link && Cloud.state !== 'conflict') await Cloud.sync();
+    const t = await Cloud.token();
+    const r = await Cloud.http('/rest/v1/rpc/listar_versoes', { method: 'POST', token: t, body: {} });
+    const itens = (Array.isArray(r) ? r : []).slice(0, 60);
+    REST.s = { estado: 'lista', itens, msg: itens.length ? '' : 'Ainda não há versões guardadas.', sel: null };
+  } catch (e) {
+    REST.s = { estado: 'lista', itens: [], msg: e && e.offline ? 'Sem internet agora.' : 'Não consegui listar as versões. Tente de novo em instantes.', sel: null };
+  }
+  render();
+}
+async function restConfirmar() {
+  const s = REST.s; if (!s || s.sel == null || s.estado === 'restaurando') return;
+  const it = s.itens[s.sel]; if (!it) return;
+  s.estado = 'restaurando'; s.msg = ''; render();
+  try {
+    if (Cloud.link && Cloud.state !== 'conflict') await Cloud.sync(); // guarda o estado atual antes de voltar no tempo
+    const t = await Cloud.token();
+    await Cloud.http('/rest/v1/rpc/restaurar_versao', { method: 'POST', token: t, body: { p_origem: it.origem, p_ref: it.ref } });
+    const row = await Cloud.getRow();
+    if (!row) throw new Error('semdados');
+    await Cloud.takeServer(row);
+    REST.s = null; toast('Versão restaurada. Para desfazer, restaure a versão mais recente da lista.'); render();
+  } catch (e) {
+    s.estado = 'lista'; s.sel = null;
+    s.msg = e && e.offline ? 'Sem internet agora.' : 'Não consegui restaurar essa versão. Nada foi alterado.';
+    render();
+  }
+}
+function restHtml() {
+  const s = REST.s;
+  if (!s) return '';
+  if (s.estado === 'carregando') return '<div class="ia-box"><p>Buscando suas versões…</p></div>';
+  const sel = s.sel != null ? s.itens[s.sel] : null;
+  const lista = s.itens.map((it, i) => `<div class="row" style="justify-content:space-between;gap:8px;margin:6px 0"><span>${esc(restFmt(it.quando))} <small>· ${it.origem === 'diaria' ? 'cópia do dia' : 'edição recente'} · ${Math.max(1, Math.round((it.tamanho || 0) / 1024))} KB</small></span><button class="btn ghost sm" data-act="restsel" data-i="${i}" ${s.estado === 'restaurando' ? 'disabled' : ''}>Escolher</button></div>`).join('');
+  return `<div class="ia-box"><p><b>Restaurar versão</b></p>
+    <p class="hint-p">Escolha o momento para o qual quer voltar. Seu estado de agora é guardado antes, então dá para desfazer.</p>
+    ${s.msg ? `<p class="ia-msg">${esc(s.msg)}</p>` : ''}
+    ${sel ? `<p class="confirm">Voltar para <b>${esc(restFmt(sel.quando))}</b>? O que você mudou depois disso sai do app (continua guardado nas versões). <button class="btn bad sm" data-act="restok" ${s.estado === 'restaurando' ? 'disabled' : ''}>${s.estado === 'restaurando' ? 'Restaurando…' : 'Restaurar'}</button> <button class="btn ghost sm" data-act="restcancel">Cancelar</button></p>` : ''}
+    <div style="max-height:320px;overflow:auto">${lista}</div>
+    <div class="row ia-actions"><button class="btn ghost" data-act="restfechar">Fechar</button></div></div>`;
+}
 /* ===== Economize v3: meta de gasto, saldo, avisos, calendário (.ics), relatório, migração ===== */
 const SCHEMA = 3;
 
@@ -4075,8 +4231,10 @@ function cloudPanel() {
     <div class="row wrap">
       <button class="btn ghost" data-act="cloudsync">Salvar agora</button>
       <button class="btn ghost" data-act="changepwd">Trocar senha</button>
+      <button class="btn ghost" data-act="restabrir">Restaurar versão</button>
       ${S.confirm === 'delconta' ? `<span class="confirm">Excluir sua conta e todos os seus dados? Não dá para desfazer. <button class="btn bad sm" data-act="delcontaok">Excluir conta</button><button class="btn ghost sm" data-act="cancel">Cancelar</button></span>` : '<button class="link muted" data-act="delconta">Excluir minha conta</button>'}
     </div>
+    ${typeof restHtml === 'function' ? restHtml() : ''}
     <p class="hint-p"><small><a href="${siteBase()}termos.html" target="_blank" rel="noopener">Termos de Uso</a> · <a href="${siteBase()}privacidade.html" target="_blank" rel="noopener">Política de Privacidade</a></small></p>
   </div>`;
 }
