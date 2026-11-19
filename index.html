@@ -1191,7 +1191,20 @@ const Parser = (() => {
         for (let j = 0; j < q; j++) out.push({ k: k0 + j, desc: t.desc, parc: null, v: t.v });
         out[out.length - 1].v = Math.round((t.v + demais - q * t.v) * 100) / 100; // ajusta os centavos para bater com o banco
       }
-      else out.push({ k: k0, desc: 'Demais parcelas (o banco não detalha os meses)', parc: null, v: demais });
+      else {
+        /* o banco não diz os meses: o que apareceu no último mês detalhado segue valendo, mês a mês, até
+           esgotar o total de "demais faturas" (estimativa; some sozinho quando sumir da fatura seguinte) */
+        const ult = out.filter((o) => o.k === meses.length && o.parc === null && !/^Parcelas \(total/.test(o.desc));
+        const mensal = Math.round(ult.reduce((a, o) => a + o.v, 0) * 100) / 100;
+        if (ult.length && mensal > 0) {
+          let resto = demais, j = 0;
+          while (resto > 0.009 && j < 60) {
+            if (resto + 0.009 >= mensal) { ult.forEach((o) => out.push({ k: k0 + j, desc: o.desc, parc: null, v: o.v, est: true })); resto = Math.round((resto - mensal) * 100) / 100; }
+            else { out.push({ k: k0 + j, desc: 'Ajuste das parcelas restantes', parc: null, v: resto, est: true }); resto = 0; }
+            j++;
+          }
+        } else out.push({ k: k0, desc: 'Demais parcelas (o banco não detalha os meses)', parc: null, v: demais });
+      }
     }
     return out;
   }
@@ -2055,7 +2068,7 @@ function parcelamentos() {
       const prox = addM(base, minK);
       // parcelas antigas que ainda não chegaram ao mês atual não contam
       if (fim < CUR) continue;
-      out.push({ desc: g.desc, v: g.v, qtd, rest, tot: g.tot, card: c, fim, prox, restante: r2(g.v * qtd * rest), mensal: r2(g.v * qtd) });
+      out.push({ est: g.ent.some((e) => e.est), desc: g.desc, v: g.v, qtd, rest, tot: g.tot, card: c, fim, prox, restante: r2(g.v * qtd * rest), mensal: r2(g.v * qtd) });
     }
   }
   return out.sort((a, b) => b.restante - a.restante);
@@ -2233,7 +2246,7 @@ function viewResumo() {
       <div class="legend"><span><i class="sw" style="background:var(--accent)"></i>Total de parcelas no mês</span><span><b class="pos">−valor</b> quanto a conta cai em relação ao mês anterior</span></div>
       ${semData > 0 ? `<p class="hint-p"><small>Mais ${brl(semData)} em parcelas que o banco informa só como total, sem os meses. Não sabemos quando acabam, por isso não entram no gráfico nem nas economias.</small></p>` : ''}
       ${Object.keys(passou).length ? `<div class="pc-ends"><div class="lbl">O que já acabou</div><ul>${Object.keys(passou).sort().reverse().map((m) => `<li><span class="pe-m">${esc(mesCurto(m))}</span><span class="pe-n">${passou[m].map((p) => esc(p.desc)).join(', ')}</span><span class="pe-v money pos">−${brl(r2(passou[m].reduce((s2, p) => s2 + p.mensal, 0)))}/mês</span></li>`).join('')}</ul></div>` : ''}
-      ${Object.keys(ends).length ? `<div class="pc-ends"><div class="lbl">Quando cada uma acaba</div><ul>${Object.keys(ends).sort().map((m) => `<li><span class="pe-m">${esc(mesCurto(m))}</span><span class="pe-n">${ends[m].map((p) => esc(p.desc) + (p.qtd > 1 ? ` <span class="tag">${p.qtd}×</span>` : '')).join(', ')}</span><span class="pe-v money pos">−${brl(r2(ends[m].reduce((s2, p) => s2 + p.mensal, 0)))}/mês</span></li>`).join('')}</ul></div>` : ''}`
+      ${Object.keys(ends).length ? `<div class="pc-ends"><div class="lbl">Quando cada uma acaba</div><ul>${Object.keys(ends).sort().map((m) => `<li><span class="pe-m">${esc(mesCurto(m))}</span><span class="pe-n">${ends[m].map((p) => esc(p.desc) + (p.qtd > 1 ? ` <span class="tag">${p.qtd}×</span>` : '') + (p.est ? ' <span class="tag">estimado</span>' : '')).join(', ')}</span><span class="pe-v money pos">−${brl(r2(ends[m].reduce((s2, p) => s2 + p.mensal, 0)))}/mês</span></li>`).join('')}</ul></div>` : ''}`
       : '<div class="empty">Nenhuma parcela nas faturas importadas.</div>'}
     </div>
 
@@ -2243,7 +2256,7 @@ function viewResumo() {
         ${pcs.length ? `<ul class="parc-list">${pcs.slice(0, S.showParc ? 99 : 6).map((p) => {
           const pagas = p.tot ? p.tot - p.rest : null;
           return `<li>
-            <div class="pl-top"><span class="pl-n">${esc(p.desc)}${p.qtd > 1 ? ` <span class="tag">${p.qtd}×</span>` : ''}<small>${esc(cardName(p.card))} · termina em ${mesCurto(p.fim)}</small></span><span class="pl-v"><span class="money">${brl(p.mensal)}</span><small>/mês</small></span></div>
+            <div class="pl-top"><span class="pl-n">${esc(p.desc)}${p.qtd > 1 ? ` <span class="tag">${p.qtd}×</span>` : ''}<small>${esc(cardName(p.card))} · termina ${p.est ? 'por volta de' : 'em'} ${mesCurto(p.fim)}</small></span><span class="pl-v"><span class="money">${brl(p.mensal)}</span><small>/mês</small></span></div>
             <div class="pl-bar"><span style="width:${p.tot ? ((pagas / p.tot) * 100).toFixed(1) : 0}%"></span></div>
             <div class="pl-meta">${p.tot ? `${pagas} de ${p.tot} pagas · faltam ${p.rest}` : `faltam ${p.rest} parcela${p.rest > 1 ? 's' : ''}`} · ${brl(p.restante)} restantes</div>
           </li>`; }).join('')}</ul>
