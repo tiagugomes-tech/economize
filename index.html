@@ -45,7 +45,7 @@
   --f-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
   --r: 10px;
   /* paleta categórica validada (claro): casa, comida, transporte, compras/lazer, saúde/educação, pix, juros; g0 = neutro */
-  --g1: #2a78d6; --g2: #eb6834; --g3: #1baf7a; --g4: #eda100; --g5: #e87ba4; --g6: #6250d6; --g7: #e34948; --g8: #14a3b8; --g0: #9aa29e;
+  --g1: #2a78d6; --g2: #eb6834; --g3: #1baf7a; --g4: #eda100; --g5: #e87ba4; --g6: #6250d6; --g7: #e34948; --g8: #14a3b8; --g9: #a8793a; --g0: #9aa29e;
   --in: #1E8449;
 }
 @media (prefers-color-scheme: dark) {
@@ -54,13 +54,13 @@
     --accent: #34D399; --accent-ink: #04130D; --accent-soft: #0F3327; --accent-2: #2E7D62;
     --ok: #5DCB8A; --ok-soft: #173826; --warn: #E6A84A; --warn-soft: #3A2B12; --bad: #F08468; --bad-soft: #3D1E16;
     --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 22px -12px rgba(0, 0, 0, .6);
-    --g1: #3987e5; --g2: #d95926; --g3: #199e70; --g4: #c98500; --g5: #d55181; --g6: #9085e9; --g7: #e66767; --g8: #2bb7cc; --g0: #6f7874;
+    --g1: #3987e5; --g2: #d95926; --g3: #199e70; --g4: #c98500; --g5: #d55181; --g6: #9085e9; --g7: #e66767; --g8: #2bb7cc; --g9: #c99a5b; --g0: #6f7874;
     --in: #5DCB8A;
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
-  --g1: #3987e5; --g2: #d95926; --g3: #199e70; --g4: #c98500; --g5: #d55181; --g6: #9085e9; --g7: #e66767; --g8: #2bb7cc; --g0: #6f7874;
+  --g1: #3987e5; --g2: #d95926; --g3: #199e70; --g4: #c98500; --g5: #d55181; --g6: #9085e9; --g7: #e66767; --g8: #2bb7cc; --g9: #c99a5b; --g0: #6f7874;
   --in: #5DCB8A;
   --bg: #0B0D0D; --surface: #151919; --surface-2: #1B2020; --ink: #EAF1EE; --muted: #96A39E; --line: #262D2B; --rule: #1D2322;
   --accent: #34D399; --accent-ink: #04130D; --accent-soft: #0F3327; --accent-2: #2E7D62;
@@ -1392,6 +1392,7 @@ const CATS = [
   ['seguros', 'Seguros', '#14A3B8'],
   ['servicos', 'Serviços', '#4A9E6B'],
   ['pix', 'Pix e transferências', '#2C7FB0'],
+  ['anuidade', 'Anuidade do cartão', '#A8793A'],
   ['tarifas', 'Tarifas e juros', '#C2452D'],
   ['viagem', 'Viagem', '#3BA3B8'],
   ['trabalho', 'Trabalho / Empresa', '#46607A'],
@@ -1404,6 +1405,7 @@ const SIGLA = { porto: 'PS', renner: 'Re', itau: 'itaú', xp: 'XP', c6: 'C6', ca
 const BANCOS = { porto: 'Porto', renner: 'Renner', itau: 'Itaú', xp: 'XP', c6: 'C6 Bank', carrefour: 'Carrefour', picpay: 'PicPay', santander: 'Santander', bb: 'Banco do Brasil', caixa: 'Caixa', nubank: 'Nubank', inter: 'Inter', outro: 'Outro' };
 
 const KEYWORDS = [
+  [/ANUIDADE|MENSALIDADE - PLANO/, 'anuidade'],
   [/(?!.*SEGURO CARTAO)\b(SEGURO|SEGUROS|SEGURADORA|PORTO SEGURO|SULAMERICA|BRADESCO SEG|LIBERTY|TOKIO MARINE|ALLIANZ|MAPFRE|HDI|PROTECAO VEICULAR|PREVIDENCIA)\b/, 'seguros'],
   [/PICOL|UBER\s*\*?\s*EATS|IFOOD|IFD\*|RAPPI|AIQFOME|ZE DELIVERY|RESTAURANTE|LANCH|PIZZA|BURGER|MC ?DONALD|BK |SUBWAY|PADARIA|PANIFIC|CAFE|SORVET|ACAI|CHURRASC|BAR |BOTECO|OUTBACK|COCO BAMBU|HABIB/, 'alimentacao'],
   [/ASSAI|ATACADAO|CARREFOUR|NORDESTAO|SUPERMERC|MERCADINHO|MERCANTIL|ATACAD|HIPER|PAO DE ACUCAR|EXTRA |BOMPRECO|SACOLAO|HORTIFRUT|MAKRO|SAMS CLUB/, 'mercado'],
@@ -1570,7 +1572,7 @@ function spendingOf(M) {
   const totBl = r2(bl.reduce((s, t) => s + t.v, 0));
   const byCat = {};
   for (const t of [...tx, ...bl]) byCat[t.cat] = r2((byCat[t.cat] || 0) + t.v);
-  const juros = r2(tx.reduce((s, t) => s + (t.juros || 0), 0) + tx.filter((t) => t.cat === 'tarifas' && !t.juros).reduce((s, t) => s + t.v, 0));
+  const juros = r2(tx.reduce((s, t) => s + (t.juros || 0), 0) + tx.filter((t) => (t.cat === 'tarifas' || t.cat === 'anuidade') && !t.juros).reduce((s, t) => s + t.v, 0));
   const missing = cards().filter((c) => c.venc && !allFat().some((f) => f.cardId === c.id && f.venc.slice(0, 7) === M));
   return { tx, bl, totTx, totBl, total: r2(totTx + totBl), byCat, juros, missing };
 }
@@ -2030,6 +2032,7 @@ const GRUPOS = [
   ['saude', 'Saúde e educação', 'var(--g5)', ['saude', 'educacao']],
   ['pix', 'Pix e transferências', 'var(--g6)', ['pix']],
   ['seguros', 'Seguros', 'var(--g8)', ['seguros']],
+  ['anuidade', 'Anuidade do cartão', 'var(--g9)', ['anuidade']],
   ['juros', 'Juros e tarifas', 'var(--g7)', ['tarifas']],
   ['outros', 'Serviços e outros', 'var(--g0)', ['servicos', 'outros']],
 ];
@@ -3482,7 +3485,7 @@ function restHtml() {
     <div style="max-height:320px;overflow:auto">${lista}</div>
     <div class="row ia-actions"><button class="btn ghost" data-act="restfechar">Fechar</button></div></div>`;
 }
-const APP_VERSION = 'v30';
+const APP_VERSION = 'v31';
 /* Assinaturas e gastos recorrentes: acha, nas faturas já importadas, estabelecimentos que cobram todo mês
    (3 meses seguidos ou mais, valor parecido, fora parcelamentos e encargos). Só leitura: nada é gravado,
    exceto a lista de "isso não é assinatura" (cfg.assinIgnorar). */
