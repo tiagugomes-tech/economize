@@ -690,6 +690,16 @@ button.hero-fig { cursor: pointer; }
 .ia-box .keep-row input { margin-top: 3px; }
 .ia-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .ia-msg { margin: 8px 0 0; color: var(--bad, #b3261e); font-size: .88rem; }
+
+.end-card { border: 1px solid var(--rule); border-radius: 12px; margin: 8px 0; background: var(--surface, transparent); }
+.end-h { all: unset; box-sizing: border-box; width: 100%; display: flex; align-items: center; gap: 10px; padding: 12px 14px; cursor: pointer; }
+.end-h:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 12px; }
+.end-n { flex: 1; font-weight: 600; display: flex; flex-direction: column; }
+.end-n small { font-weight: 400; color: var(--muted); }
+.end-ch { color: var(--muted); }
+.end-l { list-style: none; margin: 0; padding: 0 14px 12px; }
+.end-l li { display: flex; justify-content: space-between; gap: 10px; padding: 8px 0; border-top: 1px solid var(--rule); }
+.end-l .pe-n small { display: block; color: var(--muted); }
 </style>
 
 <header class="top">
@@ -2083,17 +2093,6 @@ function parcelasSemData() {
   }
   return r2(tot);
 }
-/* compras cuja última parcela já veio numa fatura de meses anteriores (últimos 6 meses até o mês escolhido) */
-function parcelasQueAcabaram(M) {
-  const ini = addM(M, -6), out = {};
-  for (const f of allFat()) {
-    const m = f.venc.slice(0, 7);
-    if (m >= M || m < ini) continue;
-    for (const t of f.tx) if (t.parc && t.parc[0] === t.parc[1] && t.parc[1] > 1) (out[m] ||= []).push({ desc: t.desc, qtd: 1, mensal: t.v });
-  }
-  return out;
-}
-
 /* ---------- gráficos ---------- */
 function donut(parts, total, center) {
   const R = 78, C = 2 * Math.PI * R, gap = parts.length > 1 ? 2.2 : 0;
@@ -2174,7 +2173,7 @@ function viewResumo() {
   // compras cuja última parcela está nas faturas deste mês
   for (const f of allFat()) if (f.venc.slice(0, 7) === M) for (const t of f.tx) if (t.parc && t.parc[0] === t.parc[1]) (ends[M] ||= []).push({ desc: t.desc, qtd: 1, mensal: t.v });
 
-  const passou = parcelasQueAcabaram(M), semData = parcelasSemData();
+  const semData = parcelasSemData();
   const prox = eventsOf(M).concat(eventsOf(addM(M, 1))).filter((e) => !e.pago && (e.status === 'atrasado' || e.date >= (M === CUR ? TODAY : `${M}-01`))).slice(0, 5);
   const lista = [...sp.tx, ...sp.bl].filter((t) => !gsel || gsel.cats.includes(t.cat)).sort((a, b) => b.v - a.v);
   const shown = gsel || S.showAll ? lista : lista.slice(0, 6);
@@ -2245,8 +2244,7 @@ function viewResumo() {
       </div></div>
       <div class="legend"><span><i class="sw" style="background:var(--accent)"></i>Total de parcelas no mês</span><span><b class="pos">−valor</b> quanto a conta cai em relação ao mês anterior</span></div>
       ${semData > 0 ? `<p class="hint-p"><small>Mais ${brl(semData)} em parcelas que o banco informa só como total, sem os meses. Não sabemos quando acabam, por isso não entram no gráfico nem nas economias.</small></p>` : ''}
-      ${Object.keys(passou).length ? `<div class="pc-ends"><div class="lbl">O que já acabou</div><ul>${Object.keys(passou).sort().reverse().map((m) => `<li><span class="pe-m">${esc(mesCurto(m))}</span><span class="pe-n">${passou[m].map((p) => esc(p.desc)).join(', ')}</span><span class="pe-v money pos">−${brl(r2(passou[m].reduce((s2, p) => s2 + p.mensal, 0)))}/mês</span></li>`).join('')}</ul></div>` : ''}
-      ${Object.keys(ends).length ? `<div class="pc-ends"><div class="lbl">Quando cada uma acaba</div><ul>${Object.keys(ends).sort().map((m) => `<li><span class="pe-m">${esc(mesCurto(m))}</span><span class="pe-n">${ends[m].map((p) => esc(p.desc) + (p.qtd > 1 ? ` <span class="tag">${p.qtd}×</span>` : '') + (p.est ? ' <span class="tag">estimado</span>' : '')).join(', ')}</span><span class="pe-v money pos">−${brl(r2(ends[m].reduce((s2, p) => s2 + p.mensal, 0)))}/mês</span></li>`).join('')}</ul></div>` : ''}`
+      ${endsPanel(M, ends, pcs)}`
       : '<div class="empty">Nenhuma parcela nas faturas importadas.</div>'}
     </div>
 
@@ -3167,6 +3165,7 @@ document.addEventListener('click', (ev) => {
       Acc.remove(u); S.acc = { mode: Acc.list().length ? 'entrar' : 'criar', msg: '', user: '' }; renderLock(); toast('Conta apagada deste aparelho.'); return;
     }
     case 'assinignorar': (D().cfg.assinIgnorar ||= {})[b.dataset.k] = true; Store.saveCfg(); break;
+    case 'endtoggle': { const o = (S.endOpen ||= {}); o[b.dataset.k] = !o[b.dataset.k]; render(); return; }
     case 'cloudsync': Cloud.sync(true); return;
     case 'restabrir': restAbrir(); return;
     case 'restsel': if (REST.s) { REST.s.sel = +b.dataset.i; render(); } return;
@@ -3480,7 +3479,7 @@ function restHtml() {
     <div style="max-height:320px;overflow:auto">${lista}</div>
     <div class="row ia-actions"><button class="btn ghost" data-act="restfechar">Fechar</button></div></div>`;
 }
-const APP_VERSION = 'v28';
+const APP_VERSION = 'v29';
 /* Assinaturas e gastos recorrentes: acha, nas faturas já importadas, estabelecimentos que cobram todo mês
    (3 meses seguidos ou mais, valor parecido, fora parcelamentos e encargos). Só leitura: nada é gravado,
    exceto a lista de "isso não é assinatura" (cfg.assinIgnorar). */
@@ -3526,6 +3525,30 @@ function assinaturasPanel() {
   const li = lista.map((x) => `<div class="row" style="justify-content:space-between;gap:8px;margin:6px 0"><span>${esc(x.nome)} <small>· ${x.meses} meses seguidos${x.ativa ? '' : ' · não veio na última fatura'}</small></span><span><b>${brl(x.valor)}</b>/mês <button class="btn ghost sm" data-act="assinignorar" data-k="${esc(x.k)}" aria-label="Não é assinatura: ${esc(x.nome)}">Não é</button></span></div>`).join('');
   return `<div class="panel"><div class="panel-h"><h2>Assinaturas e cobranças que se repetem</h2></div>
     <p class="hint-p">Achamos ${lista.length} cobrança${lista.length > 1 ? 's' : ''} que se repete${lista.length > 1 ? 'm' : ''} todo mês nas suas faturas: cerca de <b>${brl(mensal)}</b> por mês, <b>${brl(mensal * 12)}</b> por ano. Vale conferir se você ainda usa cada uma.</p>${li}</div>`;
+}
+
+/* Parcelas que acabam no mês escolhido, agrupadas por cartão; cada cartão abre e fecha ao tocar */
+function endsPanel(M, ends, pcs) {
+  const itens = [], vistos = new Set();
+  const add = (card, p, tot) => {
+    const k = (card ? card.id : '') + '|' + p.desc + '|' + p.mensal;
+    if (vistos.has(k)) return; vistos.add(k);
+    itens.push({ card, desc: p.desc, qtd: p.qtd || 1, mensal: p.mensal, est: !!p.est, tot: tot || null });
+  };
+  for (const p of pcs) if (p.fim === M) add(p.card, p, p.tot);
+  for (const f of allFat()) if (f.venc.slice(0, 7) === M) for (const t of f.tx) if (t.parc && t.parc[0] === t.parc[1] && t.parc[1] > 1) add(cardById(f.cardId), { desc: t.desc, qtd: 1, mensal: t.v }, t.parc[1]);
+  const porCartao = new Map();
+  for (const it of itens) { const id = it.card ? it.card.id : '?'; if (!porCartao.has(id)) porCartao.set(id, { card: it.card, itens: [] }); porCartao.get(id).itens.push(it); }
+  const mes = mesNome(M);
+  if (!porCartao.size) return `<div class="pc-ends"><div class="lbl">Parcelas que acabam em ${esc(mes)}</div><p class="hint-p"><small>Nenhuma parcela acaba neste mês. Use as setas do mês, no alto, para ver os outros.</small></p></div>`;
+  const open = S.endOpen || {};
+  const html = [...porCartao.values()].map((g) => {
+    const key = M + '|' + (g.card ? g.card.id : '?'), on = !!open[key];
+    const tot = r2(g.itens.reduce((s2, x) => s2 + x.mensal, 0));
+    const nome = g.card ? cardName(g.card) : 'Cartão';
+    return `<div class="end-card ${on ? 'on' : ''}"><button class="end-h" type="button" data-act="endtoggle" data-k="${esc(key)}" aria-expanded="${on ? 'true' : 'false'}"><span class="end-n">${esc(nome)}<small>${g.itens.length} parcelamento${g.itens.length > 1 ? 's' : ''} acaba${g.itens.length > 1 ? 'm' : ''}</small></span><span class="pe-v money pos">−${brl(tot)}/mês</span><span class="end-ch" aria-hidden="true">${on ? '▴' : '▾'}</span></button>${on ? `<ul class="end-l">${g.itens.map((x) => `<li><span class="pe-n">${esc(x.desc)}${x.qtd > 1 ? ` <span class="tag">${x.qtd}×</span>` : ''}${x.est ? ' <span class="tag">estimado</span>' : ''}${x.tot ? `<small>${x.tot} parcelas</small>` : ''}</span><span class="pe-v money">${brl(x.mensal)}</span></li>`).join('')}</ul>` : ''}</div>`;
+  }).join('');
+  return `<div class="pc-ends"><div class="lbl">Parcelas que acabam em ${esc(mes)}</div>${html}</div>`;
 }
 /* ===== Economize v3: meta de gasto, saldo, avisos, calendário (.ics), relatório, migração ===== */
 const SCHEMA = 3;
