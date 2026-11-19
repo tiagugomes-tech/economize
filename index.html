@@ -3480,6 +3480,7 @@ function restHtml() {
     <div style="max-height:320px;overflow:auto">${lista}</div>
     <div class="row ia-actions"><button class="btn ghost" data-act="restfechar">Fechar</button></div></div>`;
 }
+const APP_VERSION = 'v28';
 /* Assinaturas e gastos recorrentes: acha, nas faturas já importadas, estabelecimentos que cobram todo mês
    (3 meses seguidos ou mais, valor parecido, fora parcelamentos e encargos). Só leitura: nada é gravado,
    exceto a lista de "isso não é assinatura" (cfg.assinIgnorar). */
@@ -4320,7 +4321,7 @@ function cloudPanel() {
       ${S.confirm === 'delconta' ? `<span class="confirm">Excluir sua conta e todos os seus dados? Não dá para desfazer. <button class="btn bad sm" data-act="delcontaok">Excluir conta</button><button class="btn ghost sm" data-act="cancel">Cancelar</button></span>` : '<button class="link muted" data-act="delconta">Excluir minha conta</button>'}
     </div>
     ${typeof restHtml === 'function' ? restHtml() : ''}
-    <p class="hint-p"><small><a href="${siteBase()}termos.html" target="_blank" rel="noopener">Termos de Uso</a> · <a href="${siteBase()}privacidade.html" target="_blank" rel="noopener">Política de Privacidade</a></small></p>
+    <p class="hint-p"><small><a href="${siteBase()}termos.html" target="_blank" rel="noopener">Termos de Uso</a> · <a href="${siteBase()}privacidade.html" target="_blank" rel="noopener">Política de Privacidade</a> · versão ${APP_VERSION}</small></p>
   </div>`;
 }
 
