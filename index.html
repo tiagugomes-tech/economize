@@ -700,6 +700,16 @@ button.hero-fig { cursor: pointer; }
 .end-l { list-style: none; margin: 0; padding: 0 14px 12px; }
 .end-l li { display: flex; justify-content: space-between; gap: 10px; padding: 8px 0; border-top: 1px solid var(--rule); }
 .end-l .pe-n small { display: block; color: var(--muted); }
+
+.ext-l { list-style: none; margin: 8px 0; padding: 0; max-height: 360px; overflow: auto; }
+.ext-row { all: unset; box-sizing: border-box; width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px 4px; border-top: 1px solid var(--rule); cursor: pointer; min-height: 44px; }
+.ext-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ext-bx { width: 22px; height: 22px; border: 2px solid var(--rule); border-radius: 6px; display: grid; place-items: center; flex: none; font-weight: 700; }
+.ext-row.on .ext-bx { background: var(--accent); border-color: var(--accent); color: #fff; }
+.ext-t { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.ext-t b { font-weight: 600; overflow-wrap: anywhere; }
+.ext-t small { color: var(--muted); }
+.ext-sum { margin: 4px 0; font-weight: 600; }
 </style>
 
 <header class="top">
@@ -1777,7 +1787,7 @@ async function importMany(list) {
     for (let k = 0; k < files.length; k++) {
       S.fila.i = k + 1; S.importErr = null; render();
       try { await importFile(files[k]); } catch (e) { falhas.push(files[k].name); continue; }
-      while (S.importing || S.pwd || S.choose || S.ia) await new Promise((r) => setTimeout(r, 200));
+      while (S.importing || S.pwd || S.choose || S.ia || S.ext) await new Promise((r) => setTimeout(r, 200));
       if (S.importErr) { falhas.push(files[k].name); S.importErr = null; }
     }
   } finally { S.fila = null; }
@@ -1819,6 +1829,7 @@ async function runImport(password) {
     return;
   }
   S.pwd = null;
+  { const er = extratoRowsFromPages(pages); if (ehExtrato(er)) { const it = parseExtrato(er); if (it.length) { S.importing = false; const nome = pending ? pending.name : ''; pending = null; leaveExample(); extOferecer(it, nome); return; } } }
   const r = Parser.parse(pages);
   lastLines = r.lines;
   S.importing = false;
@@ -2455,6 +2466,8 @@ function importBox() {
       <small class="muted">A senha só é usada para abrir o arquivo e não fica guardada.</small></form>` : ''}
     ${S.choose ? chooseHtml() : ''}
     ${S.ia ? iaHtml() : ''}
+    ${S.ext ? extHtml() : ''}
+    ${extPasteHtml()}
     ${S.importErr ? `<div class="note bad-note">${esc(S.importErr.msg)} <button class="link" data-act="copylines">Copiar texto lido</button> e me mande no chat para eu ajustar o leitor do ${esc(BANCOS[S.importErr.banco] || 'seu banco')}.</div>` : ''}
   </div>`;
 }
@@ -3172,6 +3185,14 @@ document.addEventListener('click', (ev) => {
     }
     case 'assinignorar': (D().cfg.assinIgnorar ||= {})[b.dataset.k] = true; Store.saveCfg(); break;
     case 'endtoggle': { const o = (S.endOpen ||= {}); o[b.dataset.k] = !o[b.dataset.k]; render(); return; }
+    case 'extchk': if (S.ext) { const i = S.ext.itens[+b.dataset.i]; if (i) i.on = !i.on; render(); } return;
+    case 'extall': if (S.ext) { S.ext.itens.forEach((i) => { i.on = !i.dup; }); render(); } return;
+    case 'extnone': if (S.ext) { S.ext.itens.forEach((i) => { i.on = false; }); render(); } return;
+    case 'extok': extImportar(); return;
+    case 'extcancel': S.ext = null; render(); return;
+    case 'extpaste': S.extPaste = { msg: '' }; render(); return;
+    case 'extpastex': S.extPaste = null; render(); return;
+    case 'extler': extColar(); return;
     case 'cloudsync': Cloud.sync(true); return;
     case 'restabrir': restAbrir(); return;
     case 'restsel': if (REST.s) { REST.s.sel = +b.dataset.i; render(); } return;
@@ -3485,7 +3506,7 @@ function restHtml() {
     <div style="max-height:320px;overflow:auto">${lista}</div>
     <div class="row ia-actions"><button class="btn ghost" data-act="restfechar">Fechar</button></div></div>`;
 }
-const APP_VERSION = 'v31';
+const APP_VERSION = 'v32';
 /* Assinaturas e gastos recorrentes: acha, nas faturas já importadas, estabelecimentos que cobram todo mês
    (3 meses seguidos ou mais, valor parecido, fora parcelamentos e encargos). Só leitura: nada é gravado,
    exceto a lista de "isso não é assinatura" (cfg.assinIgnorar). */
@@ -3555,6 +3576,167 @@ function endsPanel(M, ends, pcs) {
     return `<div class="end-card ${on ? 'on' : ''}"><button class="end-h" type="button" data-act="endtoggle" data-k="${esc(key)}" aria-expanded="${on ? 'true' : 'false'}"><span class="end-n">${esc(nome)}<small>${g.itens.length} parcelamento${g.itens.length > 1 ? 's' : ''} acaba${g.itens.length > 1 ? 'm' : ''}</small></span><span class="pe-v money pos">−${brl(tot)}/mês</span><span class="end-ch" aria-hidden="true">${on ? '▴' : '▾'}</span></button>${on ? `<ul class="end-l">${g.itens.map((x) => `<li><span class="pe-n">${esc(x.desc)}${x.qtd > 1 ? ` <span class="tag">${x.qtd}×</span>` : ''}${x.est ? ' <span class="tag">estimado</span>' : ''}${x.tot ? `<small>${x.tot} parcelas</small>` : ''}</span><span class="pe-v money">${brl(x.mensal)}</span></li>`).join('')}</ul>` : ''}</div>`;
   }).join('');
   return `<div class="pc-ends"><div class="lbl">Parcelas que acabam em ${esc(mes)}</div>${html}</div>`;
+}
+/* Extrato de conta: lê o PDF do extrato (ou texto colado), mostra uma prévia e, depois da sua conferência,
+   cria gastos lançados (saídas) e entradas avulsas. Tudo no aparelho: nada é enviado a servidor. */
+const EXT_DATA = /^(\d{2})\/(\d{2})\/(\d{4})$/;
+const EXT_VALOR = /^-?\s?(R\$)?\s?-?\d{1,3}(\.\d{3})*,\d{2}$|^-?\s?(R\$)?\s?-?\d+,\d{2}$/;
+const EXT_RUIDO = /^(segunda|terça|terca|quarta|quinta|sexta|sábado|sabado|domingo)\b.*\bde\b|^detalhe dos movimentos$|^\d+\s*\/\s*\d+$|^data\b.*\b(valor|saldo|descri)|^(saldo|valor \(r\$\)|saldo \(r\$\))/i;
+const EXT_FATURA = /FATURA PAGA|PAGAMENTO DE FATURA|PAGAMENTO CARTAO|PGTO CARTAO|PAGTO CARTAO|PAGAMENTO FATURA/i;
+
+function extNum(s) {
+  const neg = /-/.test(s);
+  const n = parseFloat(String(s).replace(/[^\d,]/g, '').replace(',', '.'));
+  return neg ? -n : n;
+}
+function extBonito(s) {
+  s = String(s || '').replace(/\s+/g, ' ').trim();
+  return s && s === s.toUpperCase() ? s.toLowerCase().replace(/(^|[\s/(-])(\S)/g, (m, a, b) => a + b.toUpperCase()) : s;
+}
+
+/* PDF: junta os itens de texto em linhas (pelo y) e células (pelo espaço entre colunas) */
+function extratoRowsFromPages(pages) {
+  const rows = [];
+  for (const pg of pages) {
+    const its = pg.items.filter((i) => i.str && i.str.trim()).map((i) => ({ s: i.str, x: i.transform[4], y: i.transform[5], w: i.width || 0 }));
+    its.sort((a, b) => b.y - a.y || a.x - b.x);
+    let cur = null;
+    const linhas = [];
+    for (const it of its) {
+      if (cur && Math.abs(cur.y - it.y) <= 3) cur.its.push(it); else { cur = { y: it.y, its: [it] }; linhas.push(cur); }
+    }
+    for (const ln of linhas) {
+      ln.its.sort((a, b) => a.x - b.x);
+      const cells = [];
+      for (const it of ln.its) {
+        const c = cells[cells.length - 1];
+        if (c && it.x - c.r < 10) { c.s += (it.x - c.r > 1 ? ' ' : '') + it.s; c.r = it.x + it.w; }
+        else cells.push({ s: it.s, x: it.x, r: it.x + it.w });
+      }
+      rows.push(cells.map((c) => ({ s: c.s.trim(), x: c.x, r: c.r })));
+    }
+    rows.push([]);
+  }
+  return rows;
+}
+/* texto colado: cada linha vira uma linha; células separadas por tab ou 2+ espaços */
+function extratoRowsFromText(text) {
+  return String(text || '').split(/\r?\n/).map((l) => l.trim()).map((l) => l ? l.split(/\t| {2,}/).map((s) => ({ s: s.trim() })).filter((c) => c.s) : []);
+}
+function ehExtrato(rows) {
+  const topo = rows.slice(0, 25).map((r) => r.map((c) => c.s).join(' '));
+  if (topo.some((t) => /fatura/i.test(t) && /vencimento|total desta fatura|pagamento m[ií]nimo/i.test(t))) return false;
+  return rows.some((r) => /^extrato (de )?conta|^extrato conta corrente|^extrato$/i.test((r[0] && r[0].s) || '')) || rows.some((r) => /^detalhe dos movimentos$/i.test((r[0] && r[0].s) || ''));
+}
+
+function parseExtrato(rows) {
+  const itens = [];
+  const modoA = rows.some((r) => r[0] && /^\d{2}\/\d{2}\/\d{4}/.test(r[0].s) && r.some((c) => /R\$/.test(c.s) && EXT_VALOR.test(c.s)));
+  let hdr = { tipoX: null, valorR: null, saldoR: null };
+  let futuro = false, prev = null, ultimo = null, aguardaDetalhe = false;
+  for (const r of rows) {
+    if (!r.length) { continue; }
+    const txt = r.map((c) => c.s).join(' ');
+    if (/lan[cç]amentos futuros|sa[ií]das futuras/i.test(txt)) { futuro = true; continue; }
+    if (r.length === 1 && /^lan[cç]amentos$/i.test(r[0].s)) { futuro = false; continue; }
+    if (r.some((c) => /^valor/i.test(c.s)) && r.some((c) => /^saldo/i.test(c.s))) {
+      const v = r.find((c) => /^valor/i.test(c.s)), sd = r.find((c) => /^saldo/i.test(c.s));
+      if (v.r) { hdr.valorR = v.r; hdr.saldoR = sd.r; }
+    }
+    const l = r.find((c) => /^lan[cç]amentos$/i.test(c.s)); if (l && l.x != null) hdr.tipoX = l.x;
+    let dIdx = r.findIndex((c) => EXT_DATA.test(c.s) || /^\d{2}\/\d{2}\/\d{4}\s/.test(c.s));
+    if (dIdx === 0) {
+      let cells = r.slice();
+      const m = cells[0].s.match(/^(\d{2}\/\d{2}\/\d{4})\s+(.+)$/);
+      const data = cells[0].s.slice(0, 10);
+      if (m) cells = [{ s: data }, { s: m[2], x: cells[0].x }].concat(cells.slice(1)); 
+      const vals = cells.slice(1).filter((c) => EXT_VALOR.test(c.s));
+      const textos = cells.slice(1).filter((c) => !EXT_VALOR.test(c.s));
+      if (!vals.length) { continue; }
+      let valor = vals[0];
+      if (vals.length === 1 && hdr.saldoR && vals[0].r != null) valor = Math.abs(vals[0].r - hdr.valorR) <= Math.abs(vals[0].r - hdr.saldoR) ? vals[0] : null;
+      if (!textos.length && !modoA) { ultimo = null; prev = null; continue; } // linha só com o saldo do dia
+      if (!valor) { continue; }
+      const [dd, mm, aa] = data.split('/');
+      const it = { d: `${aa}-${mm}-${dd}`, v: extNum(valor.s), tipo: '', desc: '', futuro };
+      if (modoA) {
+        if (textos.length) { it.tipo = textos.map((c) => c.s).join(' '); ultimo = null; aguardaDetalhe = false; }
+        else { it.tipo = prev || ''; aguardaDetalhe = true; ultimo = it; }
+      } else {
+        it.tipo = textos[0] ? textos[0].s : ''; it.desc = textos.slice(1).map((c) => c.s).join(' ');
+        if (textos.length === 1 && textos[0].x != null && hdr.tipoX != null) { it.tipo = ''; it.desc = textos[0].s; }
+        ultimo = it;
+      }
+      itens.push(it); prev = null;
+      continue;
+    }
+    // linhas sem data
+    if (r.some((c) => EXT_VALOR.test(c.s))) continue;
+    if (EXT_RUIDO.test(txt)) { prev = null; continue; }
+    if (modoA) {
+      if (aguardaDetalhe && ultimo) { ultimo.desc = txt; aguardaDetalhe = false; ultimo = null; prev = null; }
+      else prev = txt;
+    } else if (ultimo) {
+      const noTipo = hdr.tipoX != null && r[0].x != null && Math.abs(r[0].x - hdr.tipoX) < 8;
+      if (noTipo || hdr.tipoX == null && !ultimo.desc) ultimo.tipo += ' ' + r[0].s;
+      if (noTipo && r.length > 1) ultimo.desc += (ultimo.desc ? ' ' : '') + r.slice(1).map((c) => c.s).join(' ');
+      else if (!noTipo) ultimo.desc += (ultimo.desc ? ' ' : '') + txt;
+    }
+  }
+  return itens.filter((i) => !i.futuro && isFinite(i.v) && i.v !== 0).map((i) => {
+    const nome = [extBonito(i.tipo), extBonito(i.desc)].filter(Boolean).join(' · ') || 'Lançamento';
+    return { d: i.d, v: i.v, nome, fatura: EXT_FATURA.test(i.tipo + ' ' + i.desc) };
+  });
+}
+const extChave = (i) => `${i.d}|${Math.abs(i.v).toFixed(2)}|${i.nome.toLowerCase()}`;
+
+function extOferecer(itens, origem) {
+  const ja = new Set([...gastos(), ...avulsas()].map((x) => x.ext).filter(Boolean));
+  S.ext = { origem, itens: itens.map((i) => { const dup = ja.has(extChave(i)); return { ...i, dup, on: !dup && !i.fatura }; }), msg: '' };
+  render();
+}
+function extHtml() {
+  const e = S.ext; if (!e) return '';
+  const on = e.itens.filter((i) => i.on);
+  const sai = on.filter((i) => i.v < 0), ent = on.filter((i) => i.v > 0);
+  const soma = (a) => brl(r2(a.reduce((s, i) => s + Math.abs(i.v), 0)));
+  const li = e.itens.map((i, k) => `<li><button type="button" class="ext-row ${i.on ? 'on' : ''}" role="checkbox" aria-checked="${i.on}" data-act="extchk" data-i="${k}"><span class="ext-bx" aria-hidden="true">${i.on ? '✓' : ''}</span><span class="ext-t"><b>${esc(i.nome)}</b><small>${esc(dBR(i.d))}${i.dup ? ' · já importado' : ''}${i.fatura ? ' · pagamento de fatura (a fatura já entra à parte)' : ''}</small></span><span class="money ${i.v < 0 ? '' : 'pos'}">${i.v < 0 ? '−' : '+'}${brl(Math.abs(i.v))}</span></button></li>`).join('');
+  return `<div class="ia-box ext-box"><p><b>Extrato lido: ${e.itens.length} lançamentos</b></p>
+    <p class="hint-p">Marque o que quer trazer para o app. Saídas viram gastos e entradas viram entradas avulsas. Nada sai do seu aparelho.</p>
+    <p class="ext-sum">${sai.length} saída${sai.length === 1 ? '' : 's'} (${soma(sai)}) · ${ent.length} entrada${ent.length === 1 ? '' : 's'} (${soma(ent)})</p>
+    ${e.msg ? `<p class="ia-msg">${esc(e.msg)}</p>` : ''}
+    <div class="row ia-actions"><button class="btn ghost sm" data-act="extall">Marcar todos</button><button class="btn ghost sm" data-act="extnone">Desmarcar</button></div>
+    <ul class="ext-l">${li}</ul>
+    <div class="row ia-actions"><button class="btn" data-act="extok" ${on.length ? '' : 'disabled'}>Importar ${on.length}</button><button class="btn ghost" data-act="extcancel">Cancelar</button></div></div>`;
+}
+function extImportar() {
+  const e = S.ext; if (!e) return;
+  const cfg = D().cfg; let g = 0, n = 0, ult = '';
+  cfg.gastos = cfg.gastos || []; cfg.entradas = cfg.entradas || [];
+  for (const i of e.itens) {
+    if (!i.on) continue;
+    const base = { id: (i.v < 0 ? 'g' : 'a') + uid(), nome: i.nome.slice(0, 80), valor: Math.abs(i.v), data: i.d, ext: extChave(i) };
+    if (i.v < 0) { cfg.gastos.push({ ...base, cat: '' }); g++; } else { cfg.entradas.push({ ...base, cat: 'extra' }); n++; }
+    if (i.d > ult) ult = i.d;
+  }
+  S.ext = null; Store.saveCfg();
+  if (ult) S.month = ult.slice(0, 7);
+  toast(`${g} gasto${g === 1 ? '' : 's'} e ${n} entrada${n === 1 ? '' : 's'} importados.`);
+  render();
+}
+function extColar() {
+  const t = ($('#ext-txt') || {}).value || '';
+  const rows = extratoRowsFromText(t);
+  const itens = parseExtrato(rows);
+  if (!itens.length) { S.extPaste = { msg: 'Não encontrei lançamentos nesse texto. Copie o extrato inteiro, com datas e valores, e cole de novo.' }; render(); return; }
+  S.extPaste = null; extOferecer(itens, 'texto colado');
+}
+function extPasteHtml() {
+  if (!S.extPaste) return `<div class="row ia-actions"><button class="btn ghost sm" data-act="extpaste">Colar extrato da conta</button></div>`;
+  return `<div class="ia-box"><p><b>Colar extrato</b></p><p class="hint-p">No app ou site do banco, abra o extrato, selecione tudo, copie e cole aqui. Também dá para importar o PDF do extrato no botão acima.</p>
+    ${S.extPaste.msg ? `<p class="ia-msg">${esc(S.extPaste.msg)}</p>` : ''}
+    <textarea id="ext-txt" rows="8" style="width:100%" placeholder="Cole o extrato aqui"></textarea>
+    <div class="row ia-actions"><button class="btn" data-act="extler">Ler extrato</button><button class="btn ghost" data-act="extpastex">Fechar</button></div></div>`;
 }
 /* ===== Economize v3: meta de gasto, saldo, avisos, calendário (.ics), relatório, migração ===== */
 const SCHEMA = 3;
