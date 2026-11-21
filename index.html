@@ -1729,7 +1729,7 @@ function healCards(data) {
   }
   return changed;
 }
-const hasData = () => S.data.cfg.cards.length || S.data.cfg.bills.length || (S.data.cfg.incomes || []).length || Object.keys(S.data.faturas).length;
+const hasData = () => S.data.cfg.cards.length || S.data.cfg.bills.length || (S.data.cfg.incomes || []).length || (S.data.cfg.contas || []).length || (S.data.cfg.gastos || []).length || (S.data.cfg.entradas || []).length || Object.keys(S.data.faturas).length;
 
 function leaveExample() {
   if (!S.example) return;
@@ -2201,6 +2201,7 @@ function viewResumo() {
     ${alertBanner()}
     ${dicasCard({ M, entradas, saidas, sp, prevSp, pcs })}
     ${passosCard(false)}
+    ${contasCard()}
       ${sp.missing.length ? `<div class="panel"><div class="note">Falta a fatura de ${sp.missing.map((c) => `<strong>${esc(cardName(c))}</strong>`).join(', ')} neste mês. <button class="link" data-act="goimport">Importar</button></div></div>` : ''}
 
     <div class="row-2">
@@ -3193,6 +3194,8 @@ document.addEventListener('click', (ev) => {
     case 'extpaste': S.extPaste = { msg: '' }; render(); return;
     case 'extpastex': S.extPaste = null; render(); return;
     case 'extler': extColar(); return;
+    case 'contadel': S.contaDel = b.dataset.id; render(); return;
+    case 'contadel2': D().cfg.contas = contas().filter((c) => c.id !== b.dataset.id); S.contaDel = null; Store.saveCfg(); toast('Conta apagada.'); break;
     case 'cloudsync': Cloud.sync(true); return;
     case 'restabrir': restAbrir(); return;
     case 'restsel': if (REST.s) { REST.s.sel = +b.dataset.i; render(); } return;
@@ -3241,6 +3244,7 @@ document.addEventListener('keydown', (ev) => {
 });
 document.addEventListener('change', (ev) => {
   const t = ev.target;
+  if (t.dataset.ex && S.ext) { S.ext[t.dataset.ex] = t.value; if (t.dataset.ex === 'conta') render(); return; }
   if (t.id === 'pdffile') { importMany(t.files); t.value = ''; return; }
   if (t.id === 'jsonfile') { importJson(t.files[0]); t.value = ''; return; }
   if (t.dataset.act === 'paydate') {
@@ -3261,6 +3265,7 @@ document.addEventListener('change', (ev) => {
 document.addEventListener('input', (ev) => {
   const t = ev.target;
   if (t.dataset.ch && S.choose) S.choose[t.dataset.ch] = t.value;
+  if (t.dataset.ex && S.ext && t.dataset.ex !== 'conta') S.ext[t.dataset.ex] = t.value;
   if (t.dataset.f && S.edit) S.edit.draft[t.dataset.f] = t.value;
 });
 
@@ -3270,6 +3275,7 @@ document.addEventListener('submit', (ev) => {
   if (form === 'acc-recuperar') { Cloud.novaSenha(); return; }
   if (form && form.startsWith('acc-')) { accSubmit(form); return; }
   if (form && form.startsWith('lock-')) { lockSubmit(form); return; }
+  if (form === 'conta' || form === 'contasaldo') { contaSubmit(form, ev.target); return; }
   if (form === 'pwd') { const p = $('#pdfpwd').value; runImport(p); return; }
   const d = S.edit?.draft;
   if (!d) return;
@@ -3506,7 +3512,7 @@ function restHtml() {
     <div style="max-height:320px;overflow:auto">${lista}</div>
     <div class="row ia-actions"><button class="btn ghost" data-act="restfechar">Fechar</button></div></div>`;
 }
-const APP_VERSION = 'v32';
+const APP_VERSION = 'v33';
 /* Assinaturas e gastos recorrentes: acha, nas faturas já importadas, estabelecimentos que cobram todo mês
    (3 meses seguidos ou mais, valor parecido, fora parcelamentos e encargos). Só leitura: nada é gravado,
    exceto a lista de "isso não é assinatura" (cfg.assinIgnorar). */
@@ -3658,7 +3664,7 @@ function parseExtrato(rows) {
       if (!textos.length && !modoA) { ultimo = null; prev = null; continue; } // linha só com o saldo do dia
       if (!valor) { continue; }
       const [dd, mm, aa] = data.split('/');
-      const it = { d: `${aa}-${mm}-${dd}`, v: extNum(valor.s), tipo: '', desc: '', futuro };
+      const it = { d: `${aa}-${mm}-${dd}`, v: extNum(valor.s), tipo: '', desc: '', futuro, saldo: modoA && vals[1] ? extNum(vals[1].s) : null };
       if (modoA) {
         if (textos.length) { it.tipo = textos.map((c) => c.s).join(' '); ultimo = null; aguardaDetalhe = false; }
         else { it.tipo = prev || ''; aguardaDetalhe = true; ultimo = it; }
@@ -3683,16 +3689,45 @@ function parseExtrato(rows) {
       else if (!noTipo) ultimo.desc += (ultimo.desc ? ' ' : '') + txt;
     }
   }
-  return itens.filter((i) => !i.futuro && isFinite(i.v) && i.v !== 0).map((i) => {
+  const lista = itens.filter((i) => !i.futuro && isFinite(i.v) && i.v !== 0).map((i) => {
     const nome = [extBonito(i.tipo), extBonito(i.desc)].filter(Boolean).join(' · ') || 'Lançamento';
     return { d: i.d, v: i.v, nome, fatura: EXT_FATURA.test(i.tipo + ' ' + i.desc) };
   });
+  lista.meta = extMeta(rows, itens, modoA);
+  return lista;
+}
+/* dados da conta no cabeçalho do extrato: agência/conta, banco provável e saldo mais recente */
+function extMeta(rows, itens, modoA) {
+  const meta = { ref: '', banco: 'outro', saldo: null, saldoEm: '' };
+  const todo = rows.map((r) => r.map((c) => c.s).join(' '));
+  const cab = todo.slice(0, 40).join(' | ');
+  const m = cab.match(/ag[eê]ncia:?\s*(\d+)[^\d]{1,12}conta:?\s*([\d.\-]+)/i);
+  if (m) meta.ref = m[1] + '/' + m[2];
+  const all = todo.join(' ');
+  const pontas = todo.slice(0, 15).concat(todo.slice(-15)).join(' '); // só cabeçalho e rodapé: nomes no meio são de quem recebeu o Pix
+  if (/ita[uú]/i.test(pontas)) meta.banco = 'itau'; else if (/nubank/i.test(pontas)) meta.banco = 'nubank'; else if (/santander/i.test(pontas)) meta.banco = 'santander'; else if (/banco do brasil/i.test(pontas)) meta.banco = 'bb';
+  const dts = itens.filter((i) => !i.futuro).map((i) => i.d).sort();
+  if (modoA) {
+    const top = itens.filter((i) => !i.futuro && i.saldo != null);
+    if (top.length) { const mx = top.map((i) => i.d).sort().pop(); const pri = top.find((i) => i.d === mx); meta.saldo = pri.saldo; meta.saldoEm = mx; }
+  } else {
+    const k = rows.findIndex((r) => r[0] && /^saldo em conta$/i.test(r[0].s));
+    if (k >= 0) {
+      for (let j = k; j < Math.min(rows.length, k + 3); j++) { const c = rows[j].find((x) => EXT_VALOR.test(x.s)); if (c) { meta.saldo = extNum(c.s); break; } }
+      const em = all.match(/emitido em:?\s*(\d{2})\/(\d{2})\/(\d{4})/i);
+      meta.saldoEm = em ? `${em[3]}-${em[2]}-${em[1]}` : (dts[dts.length - 1] || '');
+    }
+  }
+  return meta;
 }
 const extChave = (i) => `${i.d}|${Math.abs(i.v).toFixed(2)}|${i.nome.toLowerCase()}`;
 
 function extOferecer(itens, origem) {
   const ja = new Set([...gastos(), ...avulsas()].map((x) => x.ext).filter(Boolean));
-  S.ext = { origem, itens: itens.map((i) => { const dup = ja.has(extChave(i)); return { ...i, dup, on: !dup && !i.fatura }; }), msg: '' };
+  const meta = itens.meta || {};
+  const ex = (D().cfg.contas || []).find((c) => c.ref && meta.ref && c.ref === meta.ref);
+  S.ext = { origem, itens: itens.map((i) => { const dup = ja.has(extChave(i)); return { ...i, dup, on: !dup && !i.fatura }; }), msg: '',
+    meta, conta: ex ? ex.id : 'nova', nome: '', banco: meta.banco || 'outro', saldo: meta.saldo != null ? String(meta.saldo).replace('.', ',') : '' };
   render();
 }
 function extHtml() {
@@ -3704,6 +3739,7 @@ function extHtml() {
   return `<div class="ia-box ext-box"><p><b>Extrato lido: ${e.itens.length} lançamentos</b></p>
     <p class="hint-p">Marque o que quer trazer para o app. Saídas viram gastos e entradas viram entradas avulsas. Nada sai do seu aparelho.</p>
     <p class="ext-sum">${sai.length} saída${sai.length === 1 ? '' : 's'} (${soma(sai)}) · ${ent.length} entrada${ent.length === 1 ? '' : 's'} (${soma(ent)})</p>
+    ${extContaHtml()}
     ${e.msg ? `<p class="ia-msg">${esc(e.msg)}</p>` : ''}
     <div class="row ia-actions"><button class="btn ghost sm" data-act="extall">Marcar todos</button><button class="btn ghost sm" data-act="extnone">Desmarcar</button></div>
     <ul class="ext-l">${li}</ul>
@@ -3712,10 +3748,15 @@ function extHtml() {
 function extImportar() {
   const e = S.ext; if (!e) return;
   const cfg = D().cfg; let g = 0, n = 0, ult = '';
-  cfg.gastos = cfg.gastos || []; cfg.entradas = cfg.entradas || [];
+  cfg.gastos = cfg.gastos || []; cfg.entradas = cfg.entradas || []; cfg.contas = cfg.contas || [];
+  let conta = cfg.contas.find((c) => c.id === e.conta);
+  if (!conta) { conta = { id: 'c' + uid(), nome: (e.nome || '').trim() || BANCOS[e.banco] || 'Conta', banco: e.banco || 'outro', ref: (e.meta && e.meta.ref) || '', saldo: null, saldoEm: '' }; cfg.contas.push(conta); }
+  const sv = e.saldo !== '' ? parseMoney(e.saldo) : null, em = (e.meta && e.meta.saldoEm) || TODAY;
+  if (sv != null && isFinite(sv) && (!conta.saldoEm || em >= conta.saldoEm)) { conta.saldo = r2(sv); conta.saldoEm = em; }
+  if (!conta.ref && e.meta && e.meta.ref) conta.ref = e.meta.ref;
   for (const i of e.itens) {
     if (!i.on) continue;
-    const base = { id: (i.v < 0 ? 'g' : 'a') + uid(), nome: i.nome.slice(0, 80), valor: Math.abs(i.v), data: i.d, ext: extChave(i) };
+    const base = { id: (i.v < 0 ? 'g' : 'a') + uid(), nome: i.nome.slice(0, 80), valor: Math.abs(i.v), data: i.d, ext: extChave(i), conta: conta.id };
     if (i.v < 0) { cfg.gastos.push({ ...base, cat: '' }); g++; } else { cfg.entradas.push({ ...base, cat: 'extra' }); n++; }
     if (i.d > ult) ult = i.d;
   }
@@ -3737,6 +3778,56 @@ function extPasteHtml() {
     ${S.extPaste.msg ? `<p class="ia-msg">${esc(S.extPaste.msg)}</p>` : ''}
     <textarea id="ext-txt" rows="8" style="width:100%" placeholder="Cole o extrato aqui"></textarea>
     <div class="row ia-actions"><button class="btn" data-act="extler">Ler extrato</button><button class="btn ghost" data-act="extpastex">Fechar</button></div></div>`;
+}
+
+function extContaHtml() {
+  const e = S.ext, cs = D().cfg.contas || [];
+  const opts = cs.map((c) => `<option value="${esc(c.id)}" ${e.conta === c.id ? 'selected' : ''}>${esc(c.nome)}</option>`).join('') + `<option value="nova" ${e.conta === 'nova' ? 'selected' : ''}>Nova conta…</option>`;
+  const nova = e.conta === 'nova' ? `<label class="fld"><span>Apelido da conta</span><input data-ex="nome" value="${esc(e.nome)}" placeholder="Ex.: Itaú corrente" maxlength="40"></label>
+    <label class="fld"><span>Banco</span><select data-ex="banco">${Object.entries(BANCOS).map(([k, n]) => `<option value="${k}" ${e.banco === k ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>` : '';
+  const em = e.meta && e.meta.saldoEm ? ` em ${esc(dBR(e.meta.saldoEm))}` : '';
+  return `<div class="ext-conta"><label class="fld"><span>Conta deste extrato</span><select data-ex="conta" id="ext-conta">${opts}</select></label>${nova}
+    <label class="fld"><span>Saldo da conta${em} (deixe vazio para não alterar)</span><input data-ex="saldo" inputmode="decimal" value="${esc(e.saldo)}" placeholder="0,00"></label></div>`;
+}
+/* Contas bancárias: saldo de cada conta (vindo do extrato ou digitado) e total. */
+const contas = () => D().cfg.contas || (D().cfg.contas = []);
+function contaIdade(c) { return c.saldoEm ? daysBetween(c.saldoEm, TODAY) : null; }
+function contaIdadeTxt(c) { const d = contaIdade(c); return d == null ? 'sem data' : d <= 0 ? 'hoje' : d === 1 ? 'ontem' : `há ${d} dias`; }
+function contasCard() {
+  const cs = contas().filter((c) => c.saldo != null);
+  if (!cs.length) return '';
+  const tot = r2(cs.reduce((s, c) => s + c.saldo, 0));
+  const velho = cs.some((c) => (contaIdade(c) || 0) > 7);
+  return `<div class="panel"><div class="panel-h"><h2>Saldo nas contas</h2></div>
+    <p class="big ${tot < 0 ? 'neg' : ''}" style="font-size:1.6rem;font-weight:700;margin:4px 0">${brl(tot)}</p>
+    ${cs.map((c) => `<div class="row" style="justify-content:space-between;gap:8px;margin:4px 0"><span>${esc(c.nome)} <small>· ${esc(BANCOS[c.banco] || '')} · atualizado ${contaIdadeTxt(c)}${(contaIdade(c) || 0) > 7 ? ' ⚠' : ''}</small></span><b class="money ${c.saldo < 0 ? 'neg' : ''}">${brl(c.saldo)}</b></div>`).join('')}
+    ${velho ? '<p class="hint-p"><small>Alguma conta está com o saldo de mais de 7 dias. Importe o extrato mais recente em Faturas para atualizar.</small></p>' : ''}</div>`;
+}
+function contasPanel() {
+  const cs = contas();
+  const li = cs.map((c) => `<div class="conta-li"><div class="row" style="justify-content:space-between;gap:8px"><span><b>${esc(c.nome)}</b> <small>· ${esc(BANCOS[c.banco] || '')}${c.ref ? ' · ' + esc(c.ref) : ''}</small></span><b class="money ${c.saldo < 0 ? 'neg' : ''}">${c.saldo != null ? brl(c.saldo) : '—'}</b></div>
+    <form class="row" data-form="contasaldo" style="gap:6px;margin:6px 0"><input type="hidden" name="id" value="${esc(c.id)}"><input name="saldo" inputmode="decimal" placeholder="Novo saldo" aria-label="Novo saldo de ${esc(c.nome)}" style="flex:1"><button class="btn ghost sm" type="submit">Atualizar saldo</button>${S.contaDel === c.id ? `<button class="btn bad sm" type="button" data-act="contadel2" data-id="${esc(c.id)}">Apagar mesmo?</button>` : `<button class="btn ghost sm" type="button" data-act="contadel" data-id="${esc(c.id)}">Apagar</button>`}</form>
+    <small class="muted">${c.saldoEm ? 'Saldo de ' + esc(dBR(c.saldoEm)) + ' (' + contaIdadeTxt(c) + ')' : 'Sem saldo informado'}</small></div>`).join('');
+  return `<div class="panel"><div class="panel-h"><h2>Minhas contas</h2></div>
+    <p class="hint-p">Cadastre cada conta que você usa. Ao importar o extrato, escolha a conta e o saldo é atualizado. Apagar a conta não apaga os lançamentos.</p>${li}
+    <form data-form="conta" class="stack-s"><label class="fld"><span>Apelido</span><input name="nome" maxlength="40" placeholder="Ex.: Itaú corrente" required></label>
+    <label class="fld"><span>Banco</span><select name="banco">${Object.entries(BANCOS).map(([k, n]) => `<option value="${k}">${esc(n)}</option>`).join('')}</select></label>
+    <label class="fld"><span>Saldo atual (opcional)</span><input name="saldo" inputmode="decimal" placeholder="0,00"></label>
+    <button class="btn" type="submit">Adicionar conta</button></form></div>`;
+}
+function contaSubmit(form, el) {
+  const f = new FormData(el), cfg = D().cfg; cfg.contas = cfg.contas || [];
+  if (form === 'conta') {
+    const nome = String(f.get('nome') || '').trim(); if (!nome) { toast('Dê um apelido para a conta.'); return; }
+    const sv = String(f.get('saldo') || '').trim() ? parseMoney(f.get('saldo')) : null;
+    cfg.contas.push({ id: 'c' + uid(), nome, banco: String(f.get('banco') || 'outro'), ref: '', saldo: sv != null && isFinite(sv) ? r2(sv) : null, saldoEm: sv != null && isFinite(sv) ? TODAY : '' });
+    toast('Conta adicionada.');
+  } else {
+    const c = cfg.contas.find((x) => x.id === f.get('id')); const sv = parseMoney(f.get('saldo'));
+    if (!c || sv == null || !isFinite(sv)) { toast('Informe o saldo.'); return; }
+    c.saldo = r2(sv); c.saldoEm = TODAY; toast('Saldo atualizado.');
+  }
+  Store.saveCfg(); render();
 }
 /* ===== Economize v3: meta de gasto, saldo, avisos, calendário (.ics), relatório, migração ===== */
 const SCHEMA = 3;
@@ -4531,6 +4622,7 @@ function cloudPanel() {
       <button class="btn ghost" data-act="restabrir">Restaurar versão</button>
       ${S.confirm === 'delconta' ? `<span class="confirm">Excluir sua conta e todos os seus dados? Não dá para desfazer. <button class="btn bad sm" data-act="delcontaok">Excluir conta</button><button class="btn ghost sm" data-act="cancel">Cancelar</button></span>` : '<button class="link muted" data-act="delconta">Excluir minha conta</button>'}
     </div>
+    ${contasPanel()}
     ${typeof restHtml === 'function' ? restHtml() : ''}
     <p class="hint-p"><small><a href="${siteBase()}termos.html" target="_blank" rel="noopener">Termos de Uso</a> · <a href="${siteBase()}privacidade.html" target="_blank" rel="noopener">Política de Privacidade</a> · versão ${APP_VERSION}</small></p>
   </div>`;
