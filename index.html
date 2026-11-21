@@ -3244,6 +3244,7 @@ document.addEventListener('keydown', (ev) => {
 });
 document.addEventListener('change', (ev) => {
   const t = ev.target;
+  if (t.dataset.f === 'forma' && S.edit) { S.edit.draft.forma = t.value; if (t.value !== 'cartao') S.edit.draft.cartao = ''; if (t.value !== 'pix') S.edit.draft.conta = ''; render(); return; }
   if (t.dataset.ex && S.ext) { S.ext[t.dataset.ex] = t.value; if (t.dataset.ex === 'conta') render(); return; }
   if (t.id === 'pdffile') { importMany(t.files); t.value = ''; return; }
   if (t.id === 'jsonfile') { importJson(t.files[0]); t.value = ''; return; }
@@ -3275,7 +3276,7 @@ document.addEventListener('submit', (ev) => {
   if (form === 'acc-recuperar') { Cloud.novaSenha(); return; }
   if (form && form.startsWith('acc-')) { accSubmit(form); return; }
   if (form && form.startsWith('lock-')) { lockSubmit(form); return; }
-  if (form === 'conta' || form === 'contasaldo') { contaSubmit(form, ev.target); return; }
+  if (form === 'ctnova' || form === 'ctsaldo') { contaSubmit(form, ev.target); return; }
   if (form === 'pwd') { const p = $('#pdfpwd').value; runImport(p); return; }
   const d = S.edit?.draft;
   if (!d) return;
@@ -3512,7 +3513,7 @@ function restHtml() {
     <div style="max-height:320px;overflow:auto">${lista}</div>
     <div class="row ia-actions"><button class="btn ghost" data-act="restfechar">Fechar</button></div></div>`;
 }
-const APP_VERSION = 'v33';
+const APP_VERSION = 'v34';
 /* Assinaturas e gastos recorrentes: acha, nas faturas já importadas, estabelecimentos que cobram todo mês
    (3 meses seguidos ou mais, valor parecido, fora parcelamentos e encargos). Só leitura: nada é gravado,
    exceto a lista de "isso não é assinatura" (cfg.assinIgnorar). */
@@ -3806,18 +3807,18 @@ function contasCard() {
 function contasPanel() {
   const cs = contas();
   const li = cs.map((c) => `<div class="conta-li"><div class="row" style="justify-content:space-between;gap:8px"><span><b>${esc(c.nome)}</b> <small>· ${esc(BANCOS[c.banco] || '')}${c.ref ? ' · ' + esc(c.ref) : ''}</small></span><b class="money ${c.saldo < 0 ? 'neg' : ''}">${c.saldo != null ? brl(c.saldo) : '—'}</b></div>
-    <form class="row" data-form="contasaldo" style="gap:6px;margin:6px 0"><input type="hidden" name="id" value="${esc(c.id)}"><input name="saldo" inputmode="decimal" placeholder="Novo saldo" aria-label="Novo saldo de ${esc(c.nome)}" style="flex:1"><button class="btn ghost sm" type="submit">Atualizar saldo</button>${S.contaDel === c.id ? `<button class="btn bad sm" type="button" data-act="contadel2" data-id="${esc(c.id)}">Apagar mesmo?</button>` : `<button class="btn ghost sm" type="button" data-act="contadel" data-id="${esc(c.id)}">Apagar</button>`}</form>
+    <form class="row" data-form="ctsaldo" style="gap:6px;margin:6px 0"><input type="hidden" name="id" value="${esc(c.id)}"><input name="saldo" inputmode="decimal" placeholder="Novo saldo" aria-label="Novo saldo de ${esc(c.nome)}" style="flex:1"><button class="btn ghost sm" type="submit">Atualizar saldo</button>${S.contaDel === c.id ? `<button class="btn bad sm" type="button" data-act="contadel2" data-id="${esc(c.id)}">Apagar mesmo?</button>` : `<button class="btn ghost sm" type="button" data-act="contadel" data-id="${esc(c.id)}">Apagar</button>`}</form>
     <small class="muted">${c.saldoEm ? 'Saldo de ' + esc(dBR(c.saldoEm)) + ' (' + contaIdadeTxt(c) + ')' : 'Sem saldo informado'}</small></div>`).join('');
   return `<div class="panel"><div class="panel-h"><h2>Minhas contas</h2></div>
     <p class="hint-p">Cadastre cada conta que você usa. Ao importar o extrato, escolha a conta e o saldo é atualizado. Apagar a conta não apaga os lançamentos.</p>${li}
-    <form data-form="conta" class="stack-s"><label class="fld"><span>Apelido</span><input name="nome" maxlength="40" placeholder="Ex.: Itaú corrente" required></label>
+    <form data-form="ctnova" class="stack-s"><label class="fld"><span>Apelido</span><input name="nome" maxlength="40" placeholder="Ex.: Itaú corrente" required></label>
     <label class="fld"><span>Banco</span><select name="banco">${Object.entries(BANCOS).map(([k, n]) => `<option value="${k}">${esc(n)}</option>`).join('')}</select></label>
     <label class="fld"><span>Saldo atual (opcional)</span><input name="saldo" inputmode="decimal" placeholder="0,00"></label>
     <button class="btn" type="submit">Adicionar conta</button></form></div>`;
 }
 function contaSubmit(form, el) {
   const f = new FormData(el), cfg = D().cfg; cfg.contas = cfg.contas || [];
-  if (form === 'conta') {
+  if (form === 'ctnova') {
     const nome = String(f.get('nome') || '').trim(); if (!nome) { toast('Dê um apelido para a conta.'); return; }
     const sv = String(f.get('saldo') || '').trim() ? parseMoney(f.get('saldo')) : null;
     cfg.contas.push({ id: 'c' + uid(), nome, banco: String(f.get('banco') || 'outro'), ref: '', saldo: sv != null && isFinite(sv) ? r2(sv) : null, saldoEm: sv != null && isFinite(sv) ? TODAY : '' });
@@ -3895,6 +3896,9 @@ function viewMeta() {
     ${field('e-valor', 'Valor (R$)', d.valor, 'inputmode="decimal" placeholder="0,00" required')}
     ${field('e-data', 'Data', d.data, 'type="date" required')}
     <label class="fld" for="e-cat"><span>Categoria</span><select id="e-cat" data-f="cat"><option value="">Automática</option>${CATS.map(([id, n]) => `<option value="${id}" ${d.cat === id ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+    <label class="fld" for="e-forma"><span>Como pagou</span><select id="e-forma" data-f="forma"><option value="">Dinheiro ou débito</option><option value="cartao" ${d.forma === 'cartao' ? 'selected' : ''}>Cartão de crédito</option><option value="pix" ${d.forma === 'pix' ? 'selected' : ''}>Pix</option></select></label>
+    ${d.forma === 'cartao' ? `<label class="fld" for="e-cartao"><span>Qual cartão</span><select id="e-cartao" data-f="cartao"><option value="">Escolha…</option>${cards().map((c) => `<option value="${esc(c.id)}" ${d.cartao === c.id ? 'selected' : ''}>${esc(cardName(c))}</option>`).join('')}</select></label><p class="hint-p">Quando a fatura deste cartão for importada, o app confere este gasto com ela e não conta em dobro.</p>` : ''}
+    ${d.forma === 'pix' ? `<label class="fld" for="e-conta"><span>De qual conta saiu</span><select id="e-conta" data-f="conta"><option value="">Escolha…</option>${(D().cfg.contas || []).map((c) => `<option value="${esc(c.id)}" ${d.conta === c.id ? 'selected' : ''}>${esc(c.nome)}</option>`).join('')}</select></label>${(D().cfg.contas || []).length ? '' : '<p class="hint-p">Cadastre suas contas em Cadastro → Minhas contas.</p>'}` : ''}
     <div class="form-acts"><button class="btn" type="submit">Salvar gasto</button><button class="btn ghost" type="button" data-act="cancel">Cancelar</button>
     ${d.id ? (S.confirm === 'delgasto' ? `<span class="confirm">Apagar este gasto? <button class="btn bad sm" type="button" data-act="delgasto">Apagar</button></span>` : `<button class="link muted" type="button" data-act="askdelgasto">Apagar</button>`) : ''}</div></form>`;
   const contaForm = (d) => `<form class="form" data-form="conta">
@@ -3947,7 +3951,7 @@ function viewMeta() {
         const c = g.cat || categorize({ desc: g.nome }).cat;
         return `<li class="inc"><button class="inc-main" data-act="editgasto" data-id="${esc(g.id)}">
           <span class="due-d"><b>${g.data.slice(8)}</b>${MES3[+g.data.slice(5, 7) - 1]}</span>
-          <span class="item-n">${esc(g.nome)}<small><i class="sw" style="background:${CAT[c]?.cor}"></i>${esc(CAT[c]?.nome || '')}</small></span>
+          <span class="item-n">${esc(g.nome)}<small><i class="sw" style="background:${CAT[c]?.cor}"></i>${esc(CAT[c]?.nome || '')}${gastoOndeTxt(g)}</small></span>
           <span class="inc-v money">${brl(+g.valor)}</span></button></li>`;
       }).join('')}</ul>` : (E?.kind === 'gasto' ? '' : '<div class="empty">Nenhum gasto lançado neste mês. Comprou um picolé? Toque em Adicionar gasto.</div>')}
     </div>
@@ -3974,7 +3978,9 @@ function submitExtra(form, d) {
     if (!d.nome?.trim()) { toast('Diga o que foi o gasto.'); return false; }
     if (valor == null || valor <= 0) { toast('Informe o valor do gasto.'); return false; }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(d.data || '')) { toast('Informe a data.'); return false; }
-    const x = { id: d.id || 'g' + uid(), nome: d.nome.trim(), valor, data: d.data, cat: d.cat || '' };
+    if (d.forma === 'cartao' && !d.cartao) { toast('Escolha em qual cartão foi o gasto.'); return false; }
+    if (d.forma === 'pix' && !d.conta) { toast('Escolha de qual conta saiu o Pix.'); return false; }
+    const x = { id: d.id || 'g' + uid(), nome: d.nome.trim(), valor, data: d.data, cat: d.cat || '', forma: d.forma || '', cartao: d.forma === 'cartao' ? d.cartao : '', conta: d.forma === 'pix' ? d.conta : (d.conta || ''), ...(d.ext ? { ext: d.ext } : {}) };
     cfg.gastos = cfg.gastos || [];
     const i = cfg.gastos.findIndex((y) => y.id === x.id);
     if (i >= 0) cfg.gastos[i] = x; else cfg.gastos.push(x);
@@ -4152,6 +4158,26 @@ async function restoreBk() {
 }
 
 
+
+/* onde o gasto foi pago e se já foi conferido com a fatura do cartão */
+function gastoOndeTxt(g) {
+  const partes = [];
+  if (g.forma === 'cartao' && g.cartao) { const c = cards().find((x) => x.id === g.cartao); partes.push(c ? cardName(c) : 'Cartão'); if (gastoNaFatura(g)) partes.push('✓ conferido na fatura'); else partes.push('aguardando a fatura'); }
+  else if (g.forma === 'pix') partes.push('Pix' + ((D().cfg.contas || []).find((x) => x.id === g.conta) ? ' · ' + (D().cfg.contas || []).find((x) => x.id === g.conta).nome : ''));
+  else if (g.conta) { const ct = (D().cfg.contas || []).find((x) => x.id === g.conta); if (ct) partes.push(ct.nome); }
+  return partes.length ? ' · ' + esc(partes.join(' · ')) : '';
+}
+/* o gasto no cartão já apareceu na fatura? mesmo cartão, mesmo valor, data até 7 dias de diferença */
+function gastoNaFatura(g) {
+  if (g.forma !== 'cartao' || !g.cartao) return null;
+  const outros = gastos().filter((x) => x.id !== g.id && x.forma === 'cartao' && x.cartao === g.cartao && Math.abs(x.valor - g.valor) < 0.01 && x.data < g.data);
+  for (const f of fatOfCard(g.cartao)) for (const t of f.tx) {
+    if (Math.abs(t.v - g.valor) >= 0.01 || Math.abs(daysBetween(t.d, g.data)) > 7) continue;
+    if (outros.length) { outros.pop(); continue; } // dois gastos iguais: cada um casa com uma compra diferente
+    return t;
+  }
+  return null;
+}
 /* ===== v16: cartão principal do mês, nota do mês e dicas de economia ===== */
 function notaMes({ entradas, saidas, sp, ev, parcMes }) {
   if (!(entradas > 0)) return null;
@@ -4247,7 +4273,7 @@ const orcCfg = () => D().cfg.orc || (D().cfg.orc = {});
 const objetivos = () => D().cfg.objetivos || (D().cfg.objetivos = []);
 function gastoPorCat(M) {
   const by = { ...spendingOf(M).byCat };
-  for (const g of gastosOf(M)) { const c = g.cat || categorize({ desc: g.nome }).cat; by[c] = r2((by[c] || 0) + (+g.valor || 0)); }
+  for (const g of gastosOf(M)) { if (gastoNaFatura(g)) continue; const c = g.cat || categorize({ desc: g.nome }).cat; by[c] = r2((by[c] || 0) + (+g.valor || 0)); }
   return by;
 }
 function orcPanel(M, E) {
